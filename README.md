@@ -248,6 +248,11 @@ Power-IQ-Multi-Shaft-Solar-Cell-Tracking-System/
 │   ├── vite.config.ts                       # Vite build configuration
 │   └── README.md                            # Dashboard setup instructions
 │
+├── firmware/                                # Physical prototype embedded firmware
+│   ├── arduino_stepper_control/             # Arduino UNO + L298N + NEMA 17 sketch
+│   │   └── arduino_stepper_control.ino
+│   └── README.md                            # Pinout table, transmission ratio & serial commands
+│
 ├── ai/                                      # AI & Predictive Maintenance layer
 │   ├── prototype_analysis/                  # Python anomaly detection simulation
 │   │   └── predictive_maintenance_simulation.py
