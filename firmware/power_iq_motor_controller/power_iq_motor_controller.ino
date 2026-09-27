@@ -40,10 +40,10 @@
 #define PIN_ENABLE 7
 
 // ---------------- MECHANICAL & KINEMATIC SETTINGS ----------------
-// Bench-Calibrated Precision Factor:
-// 200 full steps per 360 degrees = 0.555556 steps per degree
-// 90 deg = 50 steps | 40 deg = 22 steps | 10 deg = 6 steps
-const float STEPS_PER_DEGREE = 200.0f / 360.0f; // 0.555556 steps/deg
+// Bench-Calibrated Precision Factor (Confirmed on physical hardware):
+// 10.556 steps per degree (approx 19:1 worm gear reduction)
+// 10 deg = 106 steps | 40 deg = 422 steps | 80 deg full travel = 844 steps
+const float STEPS_PER_DEGREE = 10.556f;
 
 // Pulse Timing: 2500us (2.5ms HIGH + 2.5ms LOW) = high torque, zero stalling
 const int STEP_PULSE_DELAY_US = 2500;

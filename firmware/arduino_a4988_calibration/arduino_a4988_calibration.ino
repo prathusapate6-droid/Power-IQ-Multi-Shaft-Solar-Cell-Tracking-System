@@ -23,7 +23,7 @@ const int stepPulseDelayUs = 2500;
 //   If Worm Gear has 40 teeth: (200 * 40) / 360 = 22.22 steps/deg
 //   If directly testing motor shaft without gear: 200 / 360 = 0.556 steps/deg
 // Confirmed bench calibration: 200 steps / 360 deg = 0.5556 steps/deg
-float stepsPerDegree = 0.556;
+float stepsPerDegree = 10.556;
 
 float currentAngle = 0.0;
 

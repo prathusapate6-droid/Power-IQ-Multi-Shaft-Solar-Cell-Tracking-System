@@ -32,9 +32,8 @@ Wiring Connection (Arduino UNO -> A4988):
 const int motorStepsPerRev = 200;      // NEMA 17: 1.8 deg per step (200 steps/rev in Full Step)
 const int wormRatio = 30;             // 30:1 Worm Gear Reduction Ratio
 
-// Confirmed Bench Calibration: 200 steps / 360 deg = 0.5556 steps/deg
-// 40 degrees = 22 steps, 90 degrees = 50 steps
-const float stepsPerDegree = 0.556;
+// Confirmed Bench Calibration: 10.556 steps per degree
+const float stepsPerDegree = 10.556;
 
 // Speed: Pulse delay in microseconds (2500us = smooth torque, high reliability)
 const int stepPulseDelayUs = 2500;

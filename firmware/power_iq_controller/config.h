@@ -76,14 +76,15 @@
 // Steps per degree = (MOTOR_FULL_STEPS_PER_REV * WORM_GEAR_TEETH * MICROSTEPPING_MULTIPLIER) / 360.0f
 // For 30:1 ratio & full-step: (200 * 30) / 360 = 16.6667 steps / degree
 // For 40:1 ratio & full-step: (200 * 40) / 360 = 22.2222 steps / degree
-#define THEORETICAL_STEPS_PER_DEG ((float)(MOTOR_FULL_STEPS_PER_REV * WORM_GEAR_TEETH * MICROSTEPPING_MULTIPLIER) / 360.0f)
+// Bench-Calibrated Precision Factor (Confirmed on physical hardware):
+#define THEORETICAL_STEPS_PER_DEG 10.556f
 
-// Default step delay in milliseconds (for L298N torque stability)
+// Default step delay in milliseconds
 #define DEFAULT_STEP_DELAY_MS     5
 
-// Mechanical Slat Travel Limits (Degrees)
-#define MIN_TRAVEL_ANGLE_DEG      -90.0f
-#define MAX_TRAVEL_ANGLE_DEG      90.0f
+// Mechanical Slat Travel Limits (Degrees) - Safe 80 deg travel window
+#define MIN_TRAVEL_ANGLE_DEG      -40.0f
+#define MAX_TRAVEL_ANGLE_DEG      40.0f
 
 // Power Conservation: Automatically de-energize coils when stationary
 // (Worm gear self-locking prevents back-drive, reducing idle power to 0W)
