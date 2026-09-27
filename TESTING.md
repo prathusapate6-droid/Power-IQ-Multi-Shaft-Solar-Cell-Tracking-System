@@ -24,7 +24,7 @@
 | **TEST-06** | Phase 3 | 4-LDR Sensor Analog Characterization | Arduino UNO + 4x GL5528 (A0-A3) | **PLANNED** | Baseline light values, matched response |
 | **TEST-07** | Phase 3 | LDR Differential & Deadband Filtering | Arduino UNO + 4x GL5528 | **PLANNED** | Direction error, hysteresis, jitter filter |
 | **TEST-08** | Phase 4 | Full Arduino Closed-Loop Tracker | Arduino + A4988 + Hall + 4-LDR | **PLANNED** | Closed-loop sun seeking within $\pm 40^\circ$ |
-| **TEST-09** | Phase 5 | STM32 Motor & Driver Porting | STM32 + A4988 + NEMA 17 | **PLANNED** | GPIO step pulse timing on STM32 |
+| **TEST-09** | Phase 5 | STM32 Motor & Driver Porting | STM32 + A4988 + NEMA 17 | **IN PROGRESS** | PB8, PB9, PB10 connected, ready for test |
 | **TEST-10** | Phase 6 | STM32 USB-Serial Telemetry & Shell | STM32 USB CDC / UART | **PLANNED** | Interactive command parser & status |
 | **TEST-11** | Phase 7 | STM32 $\leftrightarrow$ ESP UART Link | STM32 UART $\leftrightarrow$ ESP8266/ESP32 | **PLANNED** | Structured JSON telemetry & ACK |
 | **TEST-12** | Phase 8 | ESP Cloud Ingestion & WiFi Uplink | ESP $\rightarrow$ MQTT / HTTP Cloud | **PLANNED** | Field telemetry streaming |
@@ -57,14 +57,31 @@
 - **Status:** **PASSED**
 - **Date:** 2026-09-27
 - **Objective:** Calibrate exact `stepsPerDegree` to map commanded degrees to physical rotation, and eliminate motor coil hissing/buzzing noise when stationary.
-- **Final Bench Calibration:**
-  $$\mathbf{stepsPerDegree = 0.556} \quad (200\text{ steps} / 360^\circ = 0.5556\text{ steps/deg})$$
-  - Command $90^\circ \rightarrow 50\text{ steps}$ ($90.0^\circ$ physical shaft rotation)
-  - Command $40^\circ \rightarrow 22\text{ steps}$ ($40.0^\circ$ physical shaft rotation)
-  - Command $-40^\circ \rightarrow 22\text{ steps}$ reverse
+- **Final Confirmed Bench Calibration:**
+  $$\mathbf{stepsPerDegree = 10.556} \quad (\approx 19:1\text{ worm reduction})$$
+  - Command $10^\circ \rightarrow 106\text{ steps}$ ($10.0^\circ$ physical shaft rotation)
+  - Command $40^\circ \rightarrow 422\text{ steps}$ ($40.0^\circ$ physical shaft rotation)
+  - Command $-40^\circ \rightarrow 422\text{ steps}$ reverse
   - Command $0^\circ \rightarrow$ Returns to datum
 - **Noise & Heat Fix:** Integrated automatic coil de-energization (`ENABLE` pin pulled `HIGH` after motion completes). The motor becomes **100% silent and cold (0W idle power)** while remaining mechanically locked via the worm gear transmission.
-- **Code:** [`firmware/arduino_a4988_angle_control/arduino_a4988_angle_control.ino`](firmware/arduino_a4988_angle_control/arduino_a4988_angle_control.ino) and [`firmware/arduino_a4988_calibration/arduino_a4988_calibration.ino`](firmware/arduino_a4988_calibration/arduino_a4988_calibration.ino)
+- **Code:** [`firmware/arduino_a4988_angle_control/arduino_a4988_angle_control.ino`](firmware/arduino_a4988_angle_control/arduino_a4988_angle_control.ino) and [`firmware/power_iq_motor_controller/power_iq_motor_controller.ino`](firmware/power_iq_motor_controller/power_iq_motor_controller.ino)
+
+### TEST-09: STM32 Blue Pill A4988 Stepper Control
+- **Status:** **IN PROGRESS (Ready for Hardware Bench Run)**
+- **Date:** 2026-09-27
+- **Objective:** Port validated motor control and kinematic calibration ($10.556\text{ steps/deg}$) from Arduino to STM32F103C8T6 Blue Pill.
+- **Wiring Setup:**
+  - STM32 `PB8` $\rightarrow$ A4988 `STEP`
+  - STM32 `PB9` $\rightarrow$ A4988 `DIR`
+  - STM32 `PB10` $\rightarrow$ A4988 `ENABLE` (Active LOW)
+  - STM32 `3.3V` $\rightarrow$ A4988 `VDD` (Logic Power)
+  - STM32 `GND` $\rightarrow$ A4988 `GND` (Logic Ground)
+  - USB-to-TTL `TX` $\rightarrow$ STM32 `PA10` (USART1_RX)
+  - USB-to-TTL `RX` $\rightarrow$ STM32 `PA9` (USART1_TX)
+  - External 12V DC $\rightarrow$ A4988 `VMOT` / `GND` (with $100\mu\text{F}$ capacitor & common GND)
+- **Code:** [`firmware/stm32_a4988_motor_controller/stm32_a4988_motor_controller.ino`](firmware/stm32_a4988_motor_controller/stm32_a4988_motor_controller.ino)
+- **Expected Result:** STM32 Blue Pill commands NEMA 17 via A4988 with identical accuracy and silent idle hold.
+
 
 
 
