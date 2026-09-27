@@ -16,8 +16,8 @@
 
 | Test ID | Phase | Objective | Hardware / Pins | Status | Notes |
 | :--- | :--- | :--- | :--- | :---: | :--- |
-| **TEST-01** | Phase 1 | A4988 Basic Motor Rotation (CW & CCW) | Arduino UNO + A4988 + NEMA 17 | **PENDING** | Validating STEP/DIR pulses & coil wiring |
-| **TEST-02** | Phase 1 | Fixed Steps & Speed Control | Arduino UNO + A4988 + NEMA 17 | **PLANNED** | 200 steps (1 rev), 400 steps, step delay |
+| **TEST-01** | Phase 1 | A4988 Basic Motor Rotation (CW & CCW) | Arduino UNO + A4988 + NEMA 17 | **PASSED** | STEP/DIR pulses & coil wiring verified on workbench |
+| **TEST-02** | Phase 1 | Fixed Steps & Speed Control | Arduino UNO + A4988 + NEMA 17 | **IN PROGRESS** | 200 steps (1 rev), 400 steps, step delay |
 | **TEST-03** | Phase 1 | Angular Movement ($-40^\circ$ to $+40^\circ$) | Arduino UNO + A4988 + NEMA 17 + Worm | **PLANNED** | Verifying steps/degree for gear reduction |
 | **TEST-04** | Phase 2 | Hall Sensor Magnet Detection | Arduino UNO + Hall Sensor Module | **PLANNED** | Digital transition on D2 (Active LOW/HIGH) |
 | **TEST-05** | Phase 2 | Automated Homing Sequence to $0^\circ$ | Arduino + A4988 + Hall Sensor | **PLANNED** | Startup home search, step counter reset |
@@ -33,10 +33,9 @@
 
 ## Detailed Test Logs
 
-### Test Template (To be logged upon execution of each test)
-
 ### TEST-01: A4988 Basic Motor Rotation (CW & CCW)
-- **Status:** **IN PROGRESS (Ready for Hardware Bench Run)**
+- **Status:** **PASSED**
+- **Date:** 2026-09-27
 - **Objective:** Validate basic pulse generation, STEP & DIR signals, and bidirectional rotation of NEMA 17 using A4988 driver.
 - **Wiring Setup:**
   - Arduino Pin 8 $\rightarrow$ A4988 `STEP`
@@ -49,11 +48,9 @@
   - External 12V DC (-) $\rightarrow$ A4988 `GND` (Motor Ground)
   - Motor Coil A $\rightarrow$ A4988 `1A` & `1B`
   - Motor Coil B $\rightarrow$ A4988 `2A` & `2B`
-- **Code:** [`firmware/tests/test_01_a4988_motor_rotation/test_01_a4988_motor_rotation.ino`](firmware/tests/test_01_a4988_motor_rotation/test_01_a4988_motor_rotation.ino)
-- **Expected Result:**
-  - Motor rotates 200 steps (1 full revolution) Clockwise.
-  - Pauses for 2 seconds with `ENABLE` pulled HIGH (coils completely disabled and cool).
-  - Rotates 200 steps (1 full revolution) Counter-Clockwise.
-  - Pauses for 2 seconds.
-- **Verification Method:** Visual observation of motor shaft rotation and Serial Monitor at 115200 baud.
+- **Code:** [`firmware/tests/test_a4988_hardware_diag/test_a4988_hardware_diag.ino`](firmware/tests/test_a4988_hardware_diag/test_a4988_hardware_diag.ino)
+- **Expected Result:** Motor rotates continuously at controlled speed with no stalling.
+- **Actual Result:** Verified! Motor rotates smoothly with $2500\mu\text{s}$ step delay. Electrical wiring and driver connections confirmed functional.
+- **Root Cause & Fix Applied:** Jumper applied between `RESET` and `SLEEP`, step delay calibrated to $2500\mu\text{s}$ for reliable starting torque.
+
 

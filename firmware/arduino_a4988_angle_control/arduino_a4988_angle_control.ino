@@ -36,8 +36,8 @@ const int wormRatio = 30;             // 30:1 Worm Gear Reduction Ratio
 // If your slats move too much or too little, adjust this number:
 const float stepsPerDegree = 16.67;
 
-// Speed: Pulse delay in microseconds (1000us = smooth torque, safe speed)
-const int stepPulseDelayUs = 1000;
+// Speed: Pulse delay in microseconds (2500us = smooth torque, high reliability)
+const int stepPulseDelayUs = 2500;
 
 // Travel Safety Limits (Degrees)
 const int minAngle = -40;
@@ -59,8 +59,11 @@ void setup() {
   pinMode(DIR_PIN, OUTPUT);
   pinMode(ENABLE_PIN, OUTPUT);
 
-  // Start with motor disabled (Cool & safe)
-  motorOff();
+  // Enable driver coils (Active LOW)
+  digitalWrite(ENABLE_PIN, LOW);
+  digitalWrite(DIR_PIN, HIGH);
+  digitalWrite(STEP_PIN, LOW);
+
 
   Serial.begin(9600);
 
@@ -183,7 +186,7 @@ void stepPulse() {
 void motorOn() {
 
   digitalWrite(ENABLE_PIN, LOW); // A4988 ENABLE is Active-LOW
-  delayMicroseconds(50);         // Driver wake-up settling time
+  delay(5);                      // Driver charge pump & wake-up settling time
 }
 
 void motorOff() {
