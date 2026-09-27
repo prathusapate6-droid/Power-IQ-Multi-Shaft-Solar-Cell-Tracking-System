@@ -32,9 +32,9 @@ Wiring Connection (Arduino UNO -> A4988):
 const int motorStepsPerRev = 200;      // NEMA 17: 1.8 deg per step (200 steps/rev in Full Step)
 const int wormRatio = 30;             // 30:1 Worm Gear Reduction Ratio
 
-// Calibrated on physical workbench: 167 steps = ~80 degrees => 167/80 = 2.0875 steps/deg
-// 10 degrees = ~21 steps, 40 degrees = ~83 steps
-const float stepsPerDegree = 2.08;
+// Confirmed Bench Calibration: 200 steps / 360 deg = 0.5556 steps/deg
+// 40 degrees = 22 steps, 90 degrees = 50 steps
+const float stepsPerDegree = 0.556;
 
 // Speed: Pulse delay in microseconds (2500us = smooth torque, high reliability)
 const int stepPulseDelayUs = 2500;
@@ -59,10 +59,8 @@ void setup() {
   pinMode(DIR_PIN, OUTPUT);
   pinMode(ENABLE_PIN, OUTPUT);
 
-  // Enable driver coils (Active LOW)
-  digitalWrite(ENABLE_PIN, LOW);
-  digitalWrite(DIR_PIN, HIGH);
-  digitalWrite(STEP_PIN, LOW);
+  // Start with motor coils de-energized (100% silent & cool standby)
+  motorOff();
 
 
   Serial.begin(9600);
@@ -101,6 +99,13 @@ void loop() {
 
       currentAngle = 0;
       Serial.println("Current position set to 0 deg (Home).");
+      return;
+    }
+
+    if (cmd.equalsIgnoreCase("OFF")) {
+
+      motorOff();
+      Serial.println("Motor coils de-energized. 100% Silent & Cool (0W).");
       return;
     }
 

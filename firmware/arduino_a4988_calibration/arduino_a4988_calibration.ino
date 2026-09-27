@@ -22,7 +22,8 @@ const int stepPulseDelayUs = 2500;
 //   If Worm Gear has 30 teeth: (200 * 30) / 360 = 16.67 steps/deg
 //   If Worm Gear has 40 teeth: (200 * 40) / 360 = 22.22 steps/deg
 //   If directly testing motor shaft without gear: 200 / 360 = 0.556 steps/deg
-float stepsPerDegree = 16.67;
+// Confirmed bench calibration: 200 steps / 360 deg = 0.5556 steps/deg
+float stepsPerDegree = 0.556;
 
 float currentAngle = 0.0;
 
@@ -34,13 +35,16 @@ void stepPulse() {
 }
 
 void moveSteps(long steps, bool cw) {
-  digitalWrite(ENABLE_PIN, LOW); // Awake
+  digitalWrite(ENABLE_PIN, LOW); // Awake driver coils
   delay(5);
   digitalWrite(DIR_PIN, cw ? HIGH : LOW);
 
   for (long i = 0; i < steps; i++) {
     stepPulse();
   }
+
+  // De-energize coils: Eliminates buzzing/hissing noise & heating (0W power)
+  digitalWrite(ENABLE_PIN, HIGH);
 }
 
 void moveToAngle(float target) {
@@ -75,7 +79,8 @@ void setup() {
   pinMode(DIR_PIN, OUTPUT);
   pinMode(ENABLE_PIN, OUTPUT);
 
-  digitalWrite(ENABLE_PIN, LOW);
+  // Start with motor coils de-energized (100% silent & cool standby)
+  digitalWrite(ENABLE_PIN, HIGH);
   digitalWrite(DIR_PIN, HIGH);
   digitalWrite(STEP_PIN, LOW);
 
@@ -87,13 +92,14 @@ void setup() {
   Serial.println(" POWER IQ — LIVE ANGLE & GEAR CALIBRATION BENCH  ");
   Serial.println("=================================================");
   Serial.print(" Active Steps Per Degree: ");
-  Serial.println(stepsPerDegree, 2);
+  Serial.println(stepsPerDegree, 3);
   Serial.println();
   Serial.println(" COMMANDS:");
   Serial.println("   <angle>          -> e.g. 10, 20, 40, -20, 0");
-  Serial.println("   CAL <value>      -> e.g. CAL 16.67 or CAL 0.556");
-  Serial.println("   REV <turns>      -> e.g. REV 1 (Turns motor exactly 1 round)");
+  Serial.println("   CAL <value>      -> e.g. CAL 0.556");
+  Serial.println("   REV <turns>      -> e.g. REV 1");
   Serial.println("   ZERO             -> Reset current angle to 0 deg");
+  Serial.println("   OFF              -> De-energize coils (Silent & Cool)");
   Serial.println("   STATUS           -> Show current angle & calibration");
   Serial.println("=================================================");
 }
@@ -103,6 +109,12 @@ void loop() {
     String input = Serial.readStringUntil('\n');
     input.trim();
     if (input.length() == 0) return;
+
+    if (input.equalsIgnoreCase("OFF")) {
+      digitalWrite(ENABLE_PIN, HIGH);
+      Serial.println("[ACK] Motor coils de-energized. 100% Silent & Cool (0W).");
+      return;
+    }
 
     if (input.equalsIgnoreCase("STATUS")) {
       Serial.print("Current Angle: "); Serial.print(currentAngle, 1); Serial.println(" deg");
