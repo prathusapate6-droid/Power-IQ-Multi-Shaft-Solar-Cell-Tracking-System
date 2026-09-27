@@ -53,4 +53,20 @@
 - **Actual Result:** Verified! Motor rotates smoothly with $2500\mu\text{s}$ step delay. Electrical wiring and driver connections confirmed functional.
 - **Root Cause & Fix Applied:** Jumper applied between `RESET` and `SLEEP`, step delay calibrated to $2500\mu\text{s}$ for reliable starting torque.
 
+### TEST-02 & TEST-03: Kinematic Angular Calibration Bench
+- **Status:** **IN PROGRESS (Calibrating Live on Bench)**
+- **Date:** 2026-09-27
+- **Objective:** Calibrate exact `stepsPerDegree` for 3D printed transmission to map commanded degrees to physical slat rotation.
+- **Initial Theoretical Value:** $16.67\text{ steps/deg}$.
+- **Workbench Observation:**
+  - When commanding $10^\circ$, Arduino executed $167\text{ steps}$ ($0.83$ motor revolutions).
+  - Physical slat rotated $\approx 80^\circ$ (movement was $8\times$ too large).
+- **Recalibration Calculation:**
+  $$\text{Calibrated stepsPerDegree} = \frac{167\text{ steps}}{80^\circ} = 2.0875\text{ steps/degree}$$
+  - $10^\circ \approx 21\text{ steps}$
+  - $20^\circ \approx 42\text{ steps}$
+  - $40^\circ \approx 83\text{ steps}$
+- **Action:** Updated default in `arduino_a4988_angle_control.ino` and live test via `CAL 2.08` in `arduino_a4988_calibration.ino`.
+
+
 

@@ -32,9 +32,9 @@ Wiring Connection (Arduino UNO -> A4988):
 const int motorStepsPerRev = 200;      // NEMA 17: 1.8 deg per step (200 steps/rev in Full Step)
 const int wormRatio = 30;             // 30:1 Worm Gear Reduction Ratio
 
-// Theoretical calculation: (200 * 30) / 360.0 = 16.6667 steps per degree
-// If your slats move too much or too little, adjust this number:
-const float stepsPerDegree = 16.67;
+// Calibrated on physical workbench: 167 steps = ~80 degrees => 167/80 = 2.0875 steps/deg
+// 10 degrees = ~21 steps, 40 degrees = ~83 steps
+const float stepsPerDegree = 2.08;
 
 // Speed: Pulse delay in microseconds (2500us = smooth torque, high reliability)
 const int stepPulseDelayUs = 2500;
