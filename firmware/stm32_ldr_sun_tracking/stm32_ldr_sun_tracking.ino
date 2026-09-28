@@ -1,10 +1,10 @@
 /*
 ================================================================================
  POWER IQ — Low-Power Multi-Shaft Solar Cell Tracking System
- Subsystem: STM32 Sun Tracking + Voltage Sensor (33k/6.8k) + DHT11 + I2C LCD
+ Subsystem: STM32 Sun Tracking + Solar Power (V+I+P) + Battery Side + DHT11
  Platform : STM32F103C8T6 "Blue Pill" (32-bit ARM Cortex-M3 @ 72 MHz)
  Authors  : Prathamesh Sapate (Lead), Shreyash Pachade, Vansh Dobhale, Prachi Ronge
- Purpose  : 100% Pure STM32F103C8T6 ARM Firmware
+ Purpose  : 100% Pure STM32F103C8T6 ARM Firmware (Guaranteed Serial Stream)
 ================================================================================
 
  HARDWARE WIRING SPECIFICATIONS (STM32 BLUE PILL):
@@ -21,29 +21,25 @@
       - PA5   -> Bottom Sector Sensor 2 (ADC1_IN5)
    4. TEMPERATURE & HUMIDITY:
       - PB5   -> DHT11 Data Pin (with 4.7k pullup or module)
-   5. SOLAR PV VOLTAGE SENSOR (Exact User Divider: R1=33k, R2=6.8k):
-      - PA6   -> Voltage Sensor Analog Signal (ADC1_IN6)
-      - Scaling: R1 = 33000 Ohm, R2 = 6800 Ohm -> Multiplier = 5.853
-   6. OPTIONAL I2C 16x2 LCD DISPLAY (0x27):
-      - PB6   -> I2C1_SCL
-      - PB7   -> I2C1_SDA
-   7. PC SERIAL TELEMETRY (USART1 @ 9600 Baud):
+   5. SOLAR PV POWER MONITORING (Voltage + Current):
+      - PA6   -> Solar PV Voltage (ADC1_IN6) [R1=33k, R2=6.8k divider]
+      - PA7   -> Solar PV Current (ADC1_IN7) [ACS712 or Shunt Sensor]
+   6. BATTERY POWER MONITORING (Optional / Reserved):
+      - PB0   -> Battery Voltage (ADC1_IN8) [R1=33k, R2=6.8k divider]
+      - PB1   -> Battery Current (ADC1_IN9) [ACS712 or Shunt Sensor]
+   7. SERIAL TELEMETRY (USART1 @ 9600 Baud):
       - PA9   -> USB-TTL RX (USART1_TX)
       - PA10  -> USB-TTL TX (USART1_RX)
+   8. VISUAL HEARTBEAT LED:
+      - PC13  -> On-board Green LED (Blinks every 1s when active)
 ================================================================================
 */
 
 #include <Arduino.h>
-#include <Wire.h>
-#include <LiquidCrystal_I2C.h>
 
 // =============================================================================
-// 1. USER SPEED & TIMING VARIABLES (TUNE YOUR SPEEDS HERE!)
+// 1. USER SPEED & TIMING VARIABLES
 // =============================================================================
-// Pulse delay in microseconds (us) per step:
-//   - 2500 us = Safe, full torque, smooth benchmark
-//   - 2000 us = Fast, smooth tracking
-//   - 1600 us = Very fast tracking
 int ZERO_HOMING_SPEED_US = 2500;  // Speed during 0.0 deg ZERO search (default: 2500 us)
 int TRACKING_SPEED_US    = 2000;  // Speed during Sun Tracking motion (default: 2000 us)
 
@@ -59,51 +55,59 @@ int TRACKING_SPEED_US    = 2000;  // Speed during Sun Tracking motion (default: 
 #define PIN_LDR_BOT2    PA5   // Bottom Sector Sensor 2
 
 #define PIN_HALL_HOME   PB11  // Hall-effect Home Sensor (Active LOW)
-
-// ---------------- DHT11 TEMPERATURE & HUMIDITY ----------------
 #define PIN_DHT11       PB5   // DHT11 Data Pin
 
-float currentTemp     = 0.0f; // Temperature in deg C
-float currentHumidity = 0.0f; // Relative Humidity in %
+// ---------------- POWER MONITORING PINS (SOLAR & BATTERY) ----------------
+#define PIN_SOLAR_VOLT  PA6   // Solar Voltage Analog Input
+#define PIN_SOLAR_CURR  PA7   // Solar Current Analog Input
+#define PIN_BATT_VOLT   PB0   // Battery Voltage Analog Input
+#define PIN_BATT_CURR   PB1   // Battery Current Analog Input
+
+// Resistor Divider: R1=33k, R2=6.8k -> Factor = (33000 + 6800) / 6800 = 5.8529
+const float VOLT_DIVIDER_RATIO = (33000.0f + 6800.0f) / 6800.0f;
+float refVoltage = 3.3f; // STM32 ADC Reference Voltage
+
+// Current Sensor Sensitivity (ACS712 20A = 0.100 V/A, 5A = 0.185 V/A, 30A = 0.066 V/A)
+float currentSensitivity = 0.100f; // Default 100 mV/A (ACS712-20A)
+float currentZeroOffset   = 1.65f;  // Zero current voltage offset (VCC/2 for 3.3V or 2.5V for 5V)
+
+// Power Metrics
+float solarVoltage = 0.0f; // Volts
+float solarCurrent = 0.0f; // Amps
+float solarPower   = 0.0f; // Watts
+
+float battVoltage  = 0.0f; // Volts
+float battCurrent  = 0.0f; // Amps
+float battPower    = 0.0f; // Watts
+
+unsigned long lastPowerReadTime = 0;
+
+// ---------------- DHT11 ENVIRONMENT ----------------
+float currentTemp     = 0.0f; // deg C
+float currentHumidity = 0.0f; // %
 unsigned long lastDhtReadTime = 0;
 
-// ---------------- SOLAR PV VOLTAGE SENSOR (USER DIVIDER) ----------------
-#define PIN_SOLAR_VOLT  PA6   // STM32 ADC1_IN6
-const float RESISTOR_R1 = 33000.0f; // 33k Ohm
-const float RESISTOR_R2 =  6800.0f; // 6.8k Ohm
-float refVoltage        = 3.3f;     // STM32 3.3V reference voltage (adjustable)
-
-float solarVoltage      = 0.0f;     // Calculated input voltage (V)
-unsigned long lastVoltReadTime = 0;
-
-// ---------------- OPTIONAL I2C 16x2 LCD DISPLAY (0x27) ----------------
-LiquidCrystal_I2C lcd(0x27, 16, 2);
-bool isLcdPresent = false;
-unsigned long lastLcdUpdateTime = 0;
-
-// ---------------- KINEMATICS & PROVEN BENCH CONSTANTS ----------------
+// ---------------- KINEMATICS & BENCH CONSTANTS ----------------
 const float STEPS_PER_DEGREE = 10.556f; // 19:1 Worm gear ratio
-
 const float MIN_ANGLE = -40.0f;
 const float MAX_ANGLE =  40.0f;
 
-// ---------------- TRACKING THRESHOLDS ----------------
-int deadbandThreshold   = 50;   // Deadband tolerance (counts)
-int nightDarkThreshold  = 40;   // Below this is darkness / night
-const unsigned long NIGHT_PARK_DELAY_MS = 8000; // 8 seconds continuous darkness before parking
+int deadbandThreshold   = 50;
+int nightDarkThreshold  = 40;
+const unsigned long NIGHT_PARK_DELAY_MS = 8000;
 
-bool isAutoTracking   = true;   // Default: Auto Sun Tracking
-bool invertMotorDir   = false;  // Toggle if physical direction needs flip
-
-// State Tracking
-float currentAngle = 0.0f;
-bool  isHomed      = false;     // True only after 0.0 deg ZERO datum is calibrated
+bool isAutoTracking   = true;
+bool invertMotorDir   = false;
+float currentAngle    = 0.0f;
+bool  isHomed         = false;
 unsigned long lastTrackTime = 0;
 unsigned long darknessStartMs = 0;
 unsigned long frameCount = 0;
+unsigned long lastHeartbeatTime = 0;
+bool heartbeatState = false;
 
 // ---------------- DUAL-SERIAL OUTPUT HELPERS ----------------
-// Serial1 is ALWAYS USART1 on pins PA9 (TX) and PA10 (RX)
+// Always print to Serial1 (USART1 on PA9) and Serial (USB CDC if enabled)
 #ifdef SERIAL_USB
   #define HAS_USB_SERIAL 1
 #else
@@ -149,7 +153,7 @@ void printlnAll(T msg, P p) {
 #endif
 }
 
-// ---------------- LIGHTWEIGHT FAST FLOAT PARSER ----------------
+// ---------------- LIGHTWEIGHT PARSERS ----------------
 float parseCustomFloat(const char* p) {
   while (*p == ' ') p++;
   float sign = 1.0f;
@@ -172,7 +176,7 @@ float parseCustomFloat(const char* p) {
   return sign * val;
 }
 
-// ---------------- DIRECT NATIVE DHT11 READER ----------------
+// ---------------- DIRECT DHT11 BITBANG ----------------
 bool readDHT11(uint8_t pin, float &temp, float &humidity) {
   uint8_t data[5] = {0, 0, 0, 0, 0};
   pinMode(pin, OUTPUT);
@@ -216,8 +220,7 @@ void stepPulse(int delayUs);
 void moveToAngle(float targetAngle, int speedUs = 0);
 void findZeroHomeDatum();
 void updateDhtSensors();
-void updateVoltageSensor();
-void updateLcdDisplay(const char* stateStr);
+void updatePowerSensors();
 void processSerialInput();
 void executeSunTracking();
 void printTelemetry(int topVal, int botVal, int diff, const char* stateStr);
@@ -227,19 +230,18 @@ void printHelp();
 // SETUP
 // =============================================================================
 void setup() {
-  // 1. Initialize Serial Communication @ 9600 Baud FIRST!
-  Serial1.begin(9600); // PA9 (TX) and PA10 (RX)
+  // 1. Start Serial immediately on PA9 (TX) and PA10 (RX)
+  Serial1.begin(9600);
 #if HAS_USB_SERIAL
-  Serial.begin(9600);  // USB CDC Port
+  Serial.begin(9600);
 #endif
 
-  // 2. Motor Driver Pins
+  // 2. Hardware Pins Configuration
   pinMode(PIN_STEP, OUTPUT);
   pinMode(PIN_DIR, OUTPUT);
   pinMode(PIN_ENABLE, OUTPUT);
-  motorOff(); // Start 100% silent and cool (0W)
+  motorOff(); // 0W silent coils
 
-  // 3. Status LED & Sensor Pins
   pinMode(PIN_STATUS_LED, OUTPUT);
   digitalWrite(PIN_STATUS_LED, LOW); // LED ON at boot
 
@@ -248,146 +250,52 @@ void setup() {
   pinMode(PIN_LDR_BOT1, INPUT);
   pinMode(PIN_LDR_BOT2, INPUT);
   pinMode(PIN_HALL_HOME, INPUT_PULLUP);
+
   pinMode(PIN_SOLAR_VOLT, INPUT);
+  pinMode(PIN_SOLAR_CURR, INPUT);
+  pinMode(PIN_BATT_VOLT, INPUT);
+  pinMode(PIN_BATT_CURR, INPUT);
 
-  delay(600);
-
-  // 4. Print Startup Banner immediately to USART1 (PA9) and USB!
-  printlnAll();
-  printlnAll(F("========================================================"));
-  printlnAll(F(" POWER IQ — STM32 SUN TRACKER + VOLT + DHT11 + LCD     "));
-  printlnAll(F(" Platform     : STM32F103C8T6 ARM Cortex-M3 (Pure STM32)"));
-  printlnAll(F(" Calibration  : 10.556 steps/deg | Safety: -40 to +40 deg"));
-  printAll(F(" Tracking Spd : ")); printAll(TRACKING_SPEED_US);
-  printAll(F(" us | ZERO Homing Spd: ")); printAll(ZERO_HOMING_SPEED_US); printlnAll(F(" us"));
-  printlnAll(F(" Sensors      : 4x LDRs, Hall, DHT11 (PB5), Volt (PA6)  "));
-  printlnAll(F("========================================================"));
-  printlnAll(F("[INIT] Initializing peripherals..."));
-
-  // 5. Safe I2C Bus Detection (Avoid lockup if LCD absent)
-  pinMode(PB6, INPUT_PULLUP);
-  pinMode(PB7, INPUT_PULLUP);
-  delay(10);
-  if (digitalRead(PB6) == HIGH && digitalRead(PB7) == HIGH) {
-    Wire.begin();
-    Wire.beginTransmission(0x27);
-    if (Wire.endTransmission() == 0) {
-      isLcdPresent = true;
-      lcd.begin();
-      lcd.backlight();
-      lcd.setCursor(0, 0);
-      lcd.print("POWER IQ TRACKER");
-      lcd.setCursor(0, 1);
-      lcd.print("Calibrating 0.0...");
-      printlnAll(F("[I2C] LCD 16x2 Display connected on 0x27."));
-    } else {
-      printlnAll(F("[I2C] No LCD device detected at 0x27."));
-    }
-  } else {
-    printlnAll(F("[I2C] SCL/SDA floating - Skipping LCD initialization."));
+  // Triple blink on boot for instant visual confirmation
+  for (int b = 0; b < 3; b++) {
+    digitalWrite(PIN_STATUS_LED, LOW);  delay(80);
+    digitalWrite(PIN_STATUS_LED, HIGH); delay(80);
   }
 
-  // 6. Initial Sensor Readings
-  updateDhtSensors();
-  updateVoltageSensor();
+  printlnAll();
+  printlnAll(F("========================================================"));
+  printlnAll(F(" POWER IQ — STM32 SUN TRACKER & POWER TELEMETRY         "));
+  printlnAll(F(" Platform     : STM32F103C8T6 ARM Cortex-M3 (72 MHz)    "));
+  printlnAll(F(" Serial Port  : USART1 (PA9 TX, PA10 RX) @ 9600 Baud    "));
+  printlnAll(F(" Solar Power  : Voltage (PA6 33k/6.8k) + Current (PA7)  "));
+  printlnAll(F(" Battery Side : Voltage (PB0) + Current (PB1)           "));
+  printlnAll(F(" Environment  : DHT11 Temp/Humidity (PB5)               "));
+  printlnAll(F(" Calibration  : 10.556 steps/deg | Angle: -40 to +40 deg"));
+  printAll(F(" Speeds       : Tracking: ")); printAll(TRACKING_SPEED_US);
+  printAll(F(" us | ZERO Homing: ")); printAll(ZERO_HOMING_SPEED_US); printlnAll(F(" us"));
+  printlnAll(F("========================================================"));
 
-  // 7. GUARANTEED ZERO POSITIONING AT STARTUP
+  // 3. Initial Sensor Readings
+  updatePowerSensors();
+  updateDhtSensors();
+
+  // 4. Calibrate ZERO Datum
   findZeroHomeDatum();
 
   digitalWrite(PIN_STATUS_LED, HIGH); // LED OFF (Ready)
-  printlnAll(F("[READY] ZERO Established! Sun Tracking ACTIVE. Type 'HELP' for commands.\n"));
-}
-
-// =============================================================================
-// AUTOMATED ZERO POSITIONING (CENTERS ON HALL MAGNET DATUM)
-// =============================================================================
-void findZeroHomeDatum() {
-  printlnAll(F("\n[HOMING] Calibrating ZERO Position (0.0 deg Datum)..."));
-
-  // Check if magnet is already sitting at the sensor
-  if (digitalRead(PIN_HALL_HOME) == LOW) {
-    currentAngle = 0.0f;
-    isHomed = true;
-    motorOff();
-    printlnAll(F("[HOMING] Magnet already at sensor! ZERO Datum Confirmed: 0.0 deg.\n"));
-    return;
-  }
-
-  // Energize motor with proven 5ms charge pump wakeup
-  motorOn();
-  digitalWrite(PIN_STATUS_LED, LOW); // LED ON during zeroing
-
-  bool foundMagnet = false;
-  long searchLimit = (long)(45.0f * STEPS_PER_DEGREE); // Search up to 45 deg
-
-  // Phase 1: Search in Direction A (Negative)
-  digitalWrite(PIN_DIR, LOW);
-  for (long s = 0; s < searchLimit; s++) {
-    if (digitalRead(PIN_HALL_HOME) == LOW) {
-      foundMagnet = true;
-      break;
-    }
-    stepPulse(ZERO_HOMING_SPEED_US);
-  }
-
-  // Phase 2: If not found, sweep in Direction B (Positive) across 80 deg travel window
-  if (!foundMagnet) {
-    digitalWrite(PIN_DIR, HIGH);
-    long fullSweep = (long)(90.0f * STEPS_PER_DEGREE);
-    for (long s = 0; s < fullSweep; s++) {
-      if (digitalRead(PIN_HALL_HOME) == LOW) {
-        foundMagnet = true;
-        break;
-      }
-      stepPulse(ZERO_HOMING_SPEED_US);
-    }
-  }
-
-  if (foundMagnet) {
-    // Phase 3: Centering inside magnet width (Eliminates 0-10 deg magnet span error)
-    long spanSteps = 0;
-    long maxSpan = (long)(20.0f * STEPS_PER_DEGREE); // Max 20 deg span
-    uint8_t movingDir = digitalRead(PIN_DIR);
-
-    while (digitalRead(PIN_HALL_HOME) == LOW && spanSteps < maxSpan) {
-      stepPulse(ZERO_HOMING_SPEED_US);
-      spanSteps++;
-    }
-
-    // Step back by half span to land dead-center in the magnetic field!
-    long centerSteps = spanSteps / 2;
-    if (centerSteps > 0) {
-      digitalWrite(PIN_DIR, (movingDir == HIGH) ? LOW : HIGH);
-      for (long s = 0; s < centerSteps; s++) {
-        stepPulse(ZERO_HOMING_SPEED_US);
-      }
-    }
-
-    currentAngle = 0.0f;
-    isHomed = true;
-    printlnAll(F("[HOMING] Magnet centered successfully! ZERO Position LOCKED at 0.0 deg."));
-  } else {
-    // Fallback: If hall sensor is disconnected or magnet absent
-    currentAngle = 0.0f;
-    isHomed = true;
-    printlnAll(F("[WARN] Hall sensor not reached. Position synchronized to 0.0 deg."));
-  }
-
-  motorOff(); // 100% silent (0W)
-  digitalWrite(PIN_STATUS_LED, HIGH);
-  printlnAll(F("--------------------------------------------------------"));
+  printlnAll(F("[SYSTEM READY] Tracking ACTIVE. Telemetry streaming below.\n"));
 }
 
 // =============================================================================
 // MAIN LOOP
 // =============================================================================
 void loop() {
-  // 1. Process any incoming Serial commands
+  // 1. Process Serial Commands
   processSerialInput();
 
-  // 2. Periodic Sensor Updates (Non-blocking)
+  // 2. Read Sensors Periodically
+  updatePowerSensors();
   updateDhtSensors();
-  updateVoltageSensor();
 
   // 3. Closed-Loop Sun Tracking (every 500ms)
   unsigned long now = millis();
@@ -395,10 +303,71 @@ void loop() {
     lastTrackTime = now;
     executeSunTracking();
   }
+
+  // 4. Heartbeat LED (Toggles every 1s when running normally)
+  if (now - lastHeartbeatTime >= 1000) {
+    lastHeartbeatTime = now;
+    heartbeatState = !heartbeatState;
+    digitalWrite(PIN_STATUS_LED, heartbeatState ? LOW : HIGH);
+  }
 }
 
 // =============================================================================
-// DHT11 NON-BLOCKING SENSOR READ (EVERY 2.5 SECONDS)
+// POWER SENSING (SOLAR & BATTERY SIDES)
+// =============================================================================
+void updatePowerSensors() {
+  unsigned long now = millis();
+  if (now - lastPowerReadTime < 500) return;
+  lastPowerReadTime = now;
+
+  // 1. Read Solar Voltage (PA6) with 8x oversampling
+  long sumSV = 0;
+  for (int i = 0; i < 8; i++) {
+    sumSV += analogRead(PIN_SOLAR_VOLT);
+    delayMicroseconds(40);
+  }
+  float adcVoltS = ((sumSV / 8.0f) * refVoltage) / 4095.0f;
+  solarVoltage = adcVoltS * VOLT_DIVIDER_RATIO;
+  if (solarVoltage < 0.15f) solarVoltage = 0.0f;
+
+  // 2. Read Solar Current (PA7) with 8x oversampling
+  long sumSC = 0;
+  for (int i = 0; i < 8; i++) {
+    sumSC += analogRead(PIN_SOLAR_CURR);
+    delayMicroseconds(40);
+  }
+  float adcCurrS = ((sumSC / 8.0f) * refVoltage) / 4095.0f;
+  // Current I = (V_adc - V_zero) / Sensitivity
+  solarCurrent = (adcCurrS - currentZeroOffset) / currentSensitivity;
+  if (solarCurrent < 0.05f) solarCurrent = 0.0f; // Filter negative/noise floor
+
+  // 3. Compute Solar Power (Watts)
+  solarPower = solarVoltage * solarCurrent;
+
+  // 4. Read Battery Voltage (PB0) & Current (PB1)
+  long sumBV = 0;
+  for (int i = 0; i < 8; i++) {
+    sumBV += analogRead(PIN_BATT_VOLT);
+    delayMicroseconds(40);
+  }
+  float adcVoltB = ((sumBV / 8.0f) * refVoltage) / 4095.0f;
+  battVoltage = adcVoltB * VOLT_DIVIDER_RATIO;
+  if (battVoltage < 0.15f) battVoltage = 0.0f;
+
+  long sumBC = 0;
+  for (int i = 0; i < 8; i++) {
+    sumBC += analogRead(PIN_BATT_CURR);
+    delayMicroseconds(40);
+  }
+  float adcCurrB = ((sumBC / 8.0f) * refVoltage) / 4095.0f;
+  battCurrent = (adcCurrB - currentZeroOffset) / currentSensitivity;
+  if (battCurrent < 0.05f) battCurrent = 0.0f;
+
+  battPower = battVoltage * battCurrent;
+}
+
+// =============================================================================
+// DHT11 SENSOR READ (EVERY 2.5 SECONDS)
 // =============================================================================
 void updateDhtSensors() {
   unsigned long now = millis();
@@ -413,60 +382,82 @@ void updateDhtSensors() {
 }
 
 // =============================================================================
-// SOLAR PV VOLTAGE SENSOR (EXACT USER DIVIDER: R1=33k, R2=6.8k)
+// ZERO HOMING DATUM (CENTERS ON WIDE MAGNET)
 // =============================================================================
-void updateVoltageSensor() {
-  unsigned long now = millis();
-  if (now - lastVoltReadTime >= 500) {
-    lastVoltReadTime = now;
-    long sumV = 0;
-    for (int i = 0; i < 8; i++) {
-      sumV += analogRead(PIN_SOLAR_VOLT);
-      delayMicroseconds(50);
-    }
-    int rawV = sumV / 8;
-    float adcVolt = (rawV * refVoltage) / 4095.0f;
-    // V_in = V_adc / (R2 / (R1 + R2)) = V_adc * (R1 + R2) / R2
-    solarVoltage = adcVolt / (RESISTOR_R2 / (RESISTOR_R1 + RESISTOR_R2));
-    if (solarVoltage < 0.15f) solarVoltage = 0.0f; // Noise filter floor
+void findZeroHomeDatum() {
+  printlnAll(F("\n[HOMING] Calibrating ZERO Position (0.0 deg Datum)..."));
+
+  if (digitalRead(PIN_HALL_HOME) == LOW) {
+    currentAngle = 0.0f;
+    isHomed = true;
+    motorOff();
+    printlnAll(F("[HOMING] Magnet detected at sensor! ZERO Datum Confirmed: 0.0 deg.\n"));
+    return;
   }
-}
 
-// =============================================================================
-// OPTIONAL I2C 16x2 LCD DISPLAY REFRESH
-// =============================================================================
-void updateLcdDisplay(const char* stateStr) {
-  if (!isLcdPresent) return;
-  unsigned long now = millis();
-  if (now - lastLcdUpdateTime < 800) return;
-  lastLcdUpdateTime = now;
+  motorOn();
+  digitalWrite(PIN_STATUS_LED, LOW);
 
-  // Line 0: Voltage & Angle
-  lcd.setCursor(0, 0);
-  lcd.print("V:");
-  lcd.print(solarVoltage, 1);
-  lcd.print("V A:");
-  if (currentAngle >= 0) lcd.print("+");
-  lcd.print(currentAngle, 0);
-  lcd.print((char)223); // degree sign
-  lcd.print("   ");
+  bool foundMagnet = false;
+  long searchLimit = (long)(45.0f * STEPS_PER_DEGREE);
 
-  // Line 1: Temp & Humidity
-  lcd.setCursor(0, 1);
-  lcd.print("T:");
-  lcd.print((int)currentTemp);
-  lcd.print("C H:");
-  lcd.print((int)currentHumidity);
-  lcd.print("% ");
-  if (isAutoTracking) lcd.print("AUTO");
-  else lcd.print("MAN ");
+  digitalWrite(PIN_DIR, LOW);
+  for (long s = 0; s < searchLimit; s++) {
+    if (digitalRead(PIN_HALL_HOME) == LOW) {
+      foundMagnet = true;
+      break;
+    }
+    stepPulse(ZERO_HOMING_SPEED_US);
+  }
+
+  if (!foundMagnet) {
+    digitalWrite(PIN_DIR, HIGH);
+    long fullSweep = (long)(90.0f * STEPS_PER_DEGREE);
+    for (long s = 0; s < fullSweep; s++) {
+      if (digitalRead(PIN_HALL_HOME) == LOW) {
+        foundMagnet = true;
+        break;
+      }
+      stepPulse(ZERO_HOMING_SPEED_US);
+    }
+  }
+
+  if (foundMagnet) {
+    long spanSteps = 0;
+    long maxSpan = (long)(20.0f * STEPS_PER_DEGREE);
+    uint8_t movingDir = digitalRead(PIN_DIR);
+
+    while (digitalRead(PIN_HALL_HOME) == LOW && spanSteps < maxSpan) {
+      stepPulse(ZERO_HOMING_SPEED_US);
+      spanSteps++;
+    }
+
+    long centerSteps = spanSteps / 2;
+    if (centerSteps > 0) {
+      digitalWrite(PIN_DIR, (movingDir == HIGH) ? LOW : HIGH);
+      for (long s = 0; s < centerSteps; s++) {
+        stepPulse(ZERO_HOMING_SPEED_US);
+      }
+    }
+
+    currentAngle = 0.0f;
+    isHomed = true;
+    printlnAll(F("[HOMING] Magnet centered successfully! ZERO Position LOCKED at 0.0 deg."));
+  } else {
+    currentAngle = 0.0f;
+    isHomed = true;
+    printlnAll(F("[WARN] Hall sensor not reached. Position synchronized to 0.0 deg."));
+  }
+
+  motorOff();
+  digitalWrite(PIN_STATUS_LED, HIGH);
+  printlnAll(F("--------------------------------------------------------"));
 }
 
 // =============================================================================
 // CLOSED-LOOP SUN TRACKING CORE ALGORITHM
 // =============================================================================
 void executeSunTracking() {
-  // Ensure ZERO datum is known before tracking
   if (!isHomed) {
     findZeroHomeDatum();
     return;
@@ -474,53 +465,39 @@ void executeSunTracking() {
 
   frameCount++;
 
-  // 1. Read 4 LDRs with 4x oversampling
+  // 1. Read 4 LDRs
   long sumT1 = 0, sumT2 = 0, sumB1 = 0, sumB2 = 0;
   for (int i = 0; i < 4; i++) {
     sumT1 += analogRead(PIN_LDR_TOP1);
     sumT2 += analogRead(PIN_LDR_TOP2);
     sumB1 += analogRead(PIN_LDR_BOT1);
     sumB2 += analogRead(PIN_LDR_BOT2);
-    delayMicroseconds(150);
+    delayMicroseconds(100);
   }
   int rawT1 = sumT1 / 4;
   int rawT2 = sumT2 / 4;
   int rawB1 = sumB1 / 4;
   int rawB2 = sumB2 / 4;
 
-  // 2. Active-LOW Inversion: 4095 = Dark, ~600 = Direct Bright Light
-  // Real Light Intensity = 4095 - rawADC (Higher number = Brighter Light!)
-  int lightT1 = 4095 - rawT1;
-  int lightT2 = 4095 - rawT2;
-  int lightB1 = 4095 - rawB1;
-  int lightB2 = 4095 - rawB2;
+  int lightT1 = max(0, 4095 - rawT1);
+  int lightT2 = max(0, 4095 - rawT2);
+  int lightB1 = max(0, 4095 - rawB1);
+  int lightB2 = max(0, 4095 - rawB2);
 
-  if (lightT1 < 0) lightT1 = 0;
-  if (lightT2 < 0) lightT2 = 0;
-  if (lightB1 < 0) lightB1 = 0;
-  if (lightB2 < 0) lightB2 = 0;
-
-  // 3. Compute Sector Light Levels
   int avgTop    = (lightT1 + lightT2) / 2;
   int avgBottom = (lightB1 + lightB2) / 2;
   int maxLight  = max(avgTop, avgBottom);
 
-  // 4. Differential: Positive = TOP is brighter, Negative = BOTTOM is brighter
   int diff = avgTop - avgBottom;
   if (invertMotorDir) diff = -diff;
 
-  // 5. Decision Engine
   const char* trackingState = "BALANCED";
 
-  // CASE A: ROOM IS DARK (NIGHT DETECTION)
   if (maxLight < nightDarkThreshold) {
-    if (darknessStartMs == 0) {
-      darknessStartMs = millis(); // Start timing darkness
-    }
-
+    if (darknessStartMs == 0) darknessStartMs = millis();
     unsigned long darkDuration = millis() - darknessStartMs;
+
     if (darkDuration >= NIGHT_PARK_DELAY_MS) {
-      // 8 full seconds of darkness confirmed -> Return to 0.0 Home
       if (fabs(currentAngle) > 0.5f) {
         trackingState = "NIGHT CONFIRMED (8s) -> Parking at 0.0 deg";
         if (isAutoTracking) moveToAngle(0.0f, TRACKING_SPEED_US);
@@ -529,22 +506,17 @@ void executeSunTracking() {
         motorOff();
       }
     } else {
-      // 0 to 8 seconds: FIRMLY HOLD CURRENT POSITION!
       trackingState = "LOW LIGHT -> HOLDING POSITION (8s Timer)";
-      motorOff(); // 0W coils off, worm gear locks angle
+      motorOff();
     }
-  }
-  // CASE B: LIGHT DETECTED
-  else {
-    darknessStartMs = 0; // Reset night timer immediately
+  } else {
+    darknessStartMs = 0;
 
     if (abs(diff) <= deadbandThreshold) {
-      // Both sectors balanced within deadband -> Perpendicular to sun!
       trackingState = "BALANCED -> SUN LOCKED (100% Solar Yield)";
-      motorOff(); // Coils 0W silent holding
+      motorOff();
     }
     else if (diff > deadbandThreshold) {
-      // TOP (PA0+PA1) has more light -> Move 1.0 deg towards TOP (+)
       if (isAutoTracking) {
         float nextAngle = currentAngle + 1.0f;
         if (nextAngle <= MAX_ANGLE) {
@@ -558,7 +530,6 @@ void executeSunTracking() {
       }
     }
     else {
-      // BOTTOM (PA4+PA5) has more light -> Move 1.0 deg towards BOTTOM (-)
       if (isAutoTracking) {
         float nextAngle = currentAngle - 1.0f;
         if (nextAngle >= MIN_ANGLE) {
@@ -573,21 +544,18 @@ void executeSunTracking() {
     }
   }
 
-  // 6. Update LCD Display if present
-  updateLcdDisplay(trackingState);
-
-  // 7. Print Telemetry every 2 cycles (every 1 second)
+  // Print Telemetry every 2 cycles (every 1 second)
   if (frameCount % 2 == 0) {
     printTelemetry(avgTop, avgBottom, diff, trackingState);
   }
 }
 
 // =============================================================================
-// TELEMETRY OUTPUT TO SERIAL MONITOR
+// COMPREHENSIVE TELEMETRY STREAM
 // =============================================================================
 void printTelemetry(int topVal, int botVal, int diff, const char* stateStr) {
   printlnAll(F("--------------------------------------------------------"));
-  printAll(F(" [POWER IQ] Angle: "));
+  printAll(F(" [SLAT ANGLE]   Angle: "));
   if (currentAngle >= 0) printAll(F("+"));
   printAll(currentAngle, 1);
   printAll(F(" deg | Mode: "));
@@ -595,24 +563,29 @@ void printTelemetry(int topVal, int botVal, int diff, const char* stateStr) {
   printAll(F(" | Homed: "));
   printlnAll(isHomed ? F("YES (0.0 ZERO)") : F("NO"));
 
-  printAll(F(" TOP (PA0+PA1): ")); printAll(topVal);
-  printAll(F(" | BOT (PA4+PA5): ")); printAll(botVal);
+  printAll(F(" [SUN SENSORS]  TOP: ")); printAll(topVal);
+  printAll(F(" | BOT: ")); printAll(botVal);
   printAll(F(" | Diff: "));
   if (diff >= 0) printAll(F("+"));
   printAll(diff);
   printAll(F(" (Deadband: +/-")); printAll(deadbandThreshold); printlnAll(F(")"));
 
-  printAll(F(" Environment : Temp = ")); printAll(currentTemp, 1);
-  printAll(F(" deg C | Humidity = ")); printAll(currentHumidity, 1); printlnAll(F(" %"));
+  printAll(F(" [SOLAR POWER]  Voltage: ")); printAll(solarVoltage, 2); printAll(F(" V"));
+  printAll(F(" | Current: ")); printAll(solarCurrent, 2); printAll(F(" A"));
+  printAll(F(" | Power: ")); printAll(solarPower, 2); printlnAll(F(" W"));
 
-  printAll(F(" Solar Yield  : PV Voltage = ")); printAll(solarVoltage, 2); printlnAll(F(" V"));
+  printAll(F(" [BATTERY SIDE] Voltage: ")); printAll(battVoltage, 2); printAll(F(" V"));
+  printAll(F(" | Current: ")); printAll(battCurrent, 2); printAll(F(" A"));
+  printAll(F(" | Power: ")); printAll(battPower, 2); printlnAll(F(" W"));
 
-  printAll(F(" Hall Magnet : "));
-  printAll(digitalRead(PIN_HALL_HOME) == LOW ? F("DETECTED (0.0 HOME)") : F("OPEN"));
-  printAll(F(" | Motor: "));
-  printlnAll(F("0W Silent Holding"));
+  printAll(F(" [ENVIRONMENT]  Temp: ")); printAll(currentTemp, 1); printAll(F(" C"));
+  printAll(F(" | Humidity: ")); printAll(currentHumidity, 1); printlnAll(F(" %"));
 
-  printAll(F(" Status      : ")); printlnAll(stateStr);
+  printAll(F(" [HARDWARE]     Hall: "));
+  printAll(digitalRead(PIN_HALL_HOME) == LOW ? F("MAGNET DETECTED") : F("OPEN"));
+  printAll(F(" | Motor: 0W Silent Idle")); printlnAll();
+
+  printAll(F(" [STATUS]       ")); printlnAll(stateStr);
   printlnAll(F("--------------------------------------------------------"));
 }
 
@@ -634,24 +607,17 @@ void moveToAngle(float targetAngle, int speedUs) {
 
   int activeSpeed = (speedUs > 0) ? speedUs : TRACKING_SPEED_US;
 
-  // 1. Energize Motor Coils & allow charge pump to stabilize
   motorOn();
-  digitalWrite(PIN_STATUS_LED, LOW); // Active LOW: LED ON
-
-  // 2. Set Direction
+  digitalWrite(PIN_STATUS_LED, LOW);
   digitalWrite(PIN_DIR, (deltaDeg > 0) ? HIGH : LOW);
 
-  // 3. Step Pulses with selected speed
   for (long i = 0; i < steps; i++) {
     stepPulse(activeSpeed);
   }
 
-  // 4. Update Position
   currentAngle = targetAngle;
-
-  // 5. Automatic Coil De-energization: 100% silent, 0W idle power, no buzzing!
   motorOff();
-  digitalWrite(PIN_STATUS_LED, HIGH); // LED OFF
+  digitalWrite(PIN_STATUS_LED, HIGH);
 }
 
 void stepPulse(int delayUs) {
@@ -662,12 +628,12 @@ void stepPulse(int delayUs) {
 }
 
 void motorOn() {
-  digitalWrite(PIN_ENABLE, LOW); // LOW = A4988 Active
-  delay(5);                      // 5ms stabilization time for A4988 charge pump
+  digitalWrite(PIN_ENABLE, LOW);
+  delay(5);
 }
 
 void motorOff() {
-  digitalWrite(PIN_ENABLE, HIGH); // HIGH = Coils Disconnected (0W)
+  digitalWrite(PIN_ENABLE, HIGH);
 }
 
 // =============================================================================
@@ -719,20 +685,11 @@ void handleCommand(char* cmd) {
       printAll(ZERO_HOMING_SPEED_US); printlnAll(F(" us"));
     }
   }
-  else if (strncasecmp(cmd, "SPEED ", 6) == 0) {
-    int val = atoi(cmd + 6);
-    if (val >= 800 && val <= 5000) {
-      TRACKING_SPEED_US = val;
-      ZERO_HOMING_SPEED_US = val;
-      printAll(F("\n[CMD] Both Tracking & Homing speeds updated to: "));
-      printAll(val); printlnAll(F(" us"));
-    }
-  }
   else if (strncasecmp(cmd, "VREF ", 5) == 0) {
     float val = parseCustomFloat(cmd + 5);
     if (val > 2.0f && val < 5.5f) {
       refVoltage = val;
-      printAll(F("\n[CMD] Voltage Reference calibrated to: "));
+      printAll(F("\n[CMD] ADC VREF calibrated to: "));
       printAll(refVoltage, 2); printlnAll(F(" V"));
     }
   }
@@ -745,21 +702,23 @@ void handleCommand(char* cmd) {
     }
   }
   else if (strcasecmp(cmd, "STATUS") == 0) {
-    printlnAll(F("\n--- SYSTEM STATUS ---"));
+    printlnAll(F("\n--- SYSTEM PARAMETERS ---"));
     printAll(F(" Angle          : ")); printAll(currentAngle, 1); printlnAll(F(" deg"));
     printAll(F(" Homed (ZERO)   : ")); printlnAll(isHomed ? F("YES (0.0 deg)") : F("NO"));
     printAll(F(" Tracking Mode  : ")); printlnAll(isAutoTracking ? F("AUTO") : F("MANUAL"));
     printAll(F(" Tracking Speed : ")); printAll(TRACKING_SPEED_US); printlnAll(F(" us"));
     printAll(F(" Homing Speed   : ")); printAll(ZERO_HOMING_SPEED_US); printlnAll(F(" us"));
-    printAll(F(" Temperature    : ")); printAll(currentTemp, 1); printlnAll(F(" deg C"));
+    printAll(F(" Solar Voltage  : ")); printAll(solarVoltage, 2); printlnAll(F(" V"));
+    printAll(F(" Solar Current  : ")); printAll(solarCurrent, 2); printlnAll(F(" A"));
+    printAll(F(" Solar Power    : ")); printAll(solarPower, 2); printlnAll(F(" W"));
+    printAll(F(" Battery Volt   : ")); printAll(battVoltage, 2); printlnAll(F(" V"));
+    printAll(F(" Battery Curr   : ")); printAll(battCurrent, 2); printlnAll(F(" A"));
+    printAll(F(" Temperature    : ")); printAll(currentTemp, 1); printlnAll(F(" C"));
     printAll(F(" Humidity       : ")); printAll(currentHumidity, 1); printlnAll(F(" %"));
-    printAll(F(" Solar PV Volt  : ")); printAll(solarVoltage, 2); printlnAll(F(" V (R1=33k, R2=6.8k)"));
-    printAll(F(" VREF Voltage   : ")); printAll(refVoltage, 2); printlnAll(F(" V"));
-    printAll(F(" LCD 16x2 (I2C) : ")); printlnAll(isLcdPresent ? F("CONNECTED (0x27)") : F("NOT DETECTED"));
     printAll(F(" Steps/Deg      : ")); printlnAll(STEPS_PER_DEGREE, 4);
     printAll(F(" Deadband       : ")); printlnAll(deadbandThreshold);
     printAll(F(" Hall Magnet    : ")); printlnAll(digitalRead(PIN_HALL_HOME) == LOW ? F("DETECTED") : F("OPEN"));
-    printlnAll(F("---------------------\n"));
+    printlnAll(F("-------------------------\n"));
   }
   else if (strcasecmp(cmd, "HELP") == 0 || strcmp(cmd, "?") == 0) {
     printHelp();
@@ -782,7 +741,7 @@ void handleCommand(char* cmd) {
     if (isAngle) {
       if (target < MIN_ANGLE || target > MAX_ANGLE) {
         printAll(F("\n[ERROR] Target ")); printAll(target, 1);
-        printlnAll(F(" deg is outside safe range [-40.0 deg to +40.0 deg]!\n"));
+        printlnAll(F(" deg outside safe range [-40 to +40 deg]!\n"));
         return;
       }
       isAutoTracking = false;
@@ -794,7 +753,6 @@ void handleCommand(char* cmd) {
 }
 
 void processSerialInput() {
-  // 1. Process from Hardware USART1 (PA9/PA10 - /dev/cu.usbserial)
   while (Serial1.available()) {
     char c = Serial1.read();
     if (c == '\r') continue;
@@ -810,7 +768,6 @@ void processSerialInput() {
   }
 
 #if HAS_USB_SERIAL
-  // 2. Process from USB CDC (Micro-USB) if available
   while (Serial.available()) {
     char c = Serial.read();
     if (c == '\r') continue;
@@ -827,9 +784,6 @@ void processSerialInput() {
 #endif
 }
 
-// =============================================================================
-// HELP MENU
-// =============================================================================
 void printHelp() {
   printlnAll(F("\n========================================================"));
   printlnAll(F(" POWER IQ — SUN TRACKER SERIAL COMMANDS                 "));
