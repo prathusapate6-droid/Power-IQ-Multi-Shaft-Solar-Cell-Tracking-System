@@ -45,7 +45,7 @@
 // 1. USER SPEED & TIMING VARIABLES
 // =============================================================================
 int ZERO_HOMING_SPEED_US = 2500;  // Speed during 0.0 deg ZERO search (default: 2500 us)
-int TRACKING_SPEED_US    = 2500;  // Speed during Sun Tracking motion (default: 2000 us)
+int TRACKING_SPEED_US    = 3500;  // Speed during Sun Tracking motion (default: 2000 us)
 
 // ---------------- GPIO PIN DEFINITIONS (STM32 BLUE PILL) ----------------
 #define PIN_STEP        PB8   // A4988 STEP pulse
@@ -104,6 +104,7 @@ unsigned long darknessStartMs = 0;
 unsigned long frameCount = 0;
 unsigned long lastHeartbeatTime = 0;
 bool heartbeatState = false;
+unsigned long lastTelemetryTime = 0;
 
 // Manual Button Debounce & Potentiometer Tracking
 bool lastBtnState = HIGH;
@@ -111,7 +112,8 @@ unsigned long lastBtnDebounceMs = 0;
 float lastPotTargetAngle = 0.0f;
 
 // ---------------- DUAL-SERIAL OUTPUT HELPERS ----------------
-// Sends to Serial1 (PC Debug PA9) AND Serial2 (ESP32 IoT PA2)
+// Serial1: Human-readable PC Telemetry on PA9/PA10
+// Serial2: High-speed JSON Stream to ESP32 on PA2/PA3
 #ifdef SERIAL_USB
   #define HAS_USB_SERIAL 1
 #else
@@ -121,7 +123,6 @@ float lastPotTargetAngle = 0.0f;
 template<typename T>
 void printAll(T msg) {
   Serial1.print(msg);
-  Serial2.print(msg);
 #if HAS_USB_SERIAL
   Serial.print(msg);
 #endif
@@ -130,7 +131,6 @@ void printAll(T msg) {
 template<typename T, typename P>
 void printAll(T msg, P p) {
   Serial1.print(msg, p);
-  Serial2.print(msg, p);
 #if HAS_USB_SERIAL
   Serial.print(msg, p);
 #endif
@@ -138,7 +138,6 @@ void printAll(T msg, P p) {
 
 inline void printlnAll() {
   Serial1.println();
-  Serial2.println();
 #if HAS_USB_SERIAL
   Serial.println();
 #endif
@@ -147,7 +146,6 @@ inline void printlnAll() {
 template<typename T>
 void printlnAll(T msg) {
   Serial1.println(msg);
-  Serial2.println(msg);
 #if HAS_USB_SERIAL
   Serial.println(msg);
 #endif
@@ -156,10 +154,32 @@ void printlnAll(T msg) {
 template<typename T, typename P>
 void printlnAll(T msg, P p) {
   Serial1.println(msg, p);
-  Serial2.println(msg, p);
 #if HAS_USB_SERIAL
   Serial.println(msg, p);
 #endif
+}
+
+// Compact JSON Telemetry Packet to ESP32 over USART2 (PA2/PA3)
+void sendEsp32JsonTelemetry() {
+  Serial2.print(F("{\"ang\":"));
+  Serial2.print(currentAngle, 1);
+  Serial2.print(F(",\"mode\":\""));
+  Serial2.print(isAutoTracking ? "AUTO" : "MAN");
+  Serial2.print(F("\",\"homed\":"));
+  Serial2.print(isHomed ? 1 : 0);
+  Serial2.print(F(",\"v_pv\":"));
+  Serial2.print(solarVoltage, 2);
+  Serial2.print(F(",\"i_pv\":"));
+  Serial2.print(solarCurrent, 2);
+  Serial2.print(F(",\"p_pv\":"));
+  Serial2.print(solarPower, 2);
+  Serial2.print(F(",\"v_bat\":"));
+  Serial2.print(battVoltage, 2);
+  Serial2.print(F(",\"temp\":"));
+  Serial2.print(currentTemp, 1);
+  Serial2.print(F(",\"hum\":"));
+  Serial2.print(currentHumidity, 1);
+  Serial2.println(F("}"));
 }
 
 // ---------------- LIGHTWEIGHT PARSERS ----------------
@@ -326,7 +346,16 @@ void loop() {
     }
   }
 
-  // 5. Heartbeat LED (Toggles every 1s when active)
+  // 5. Periodic 1-Second Telemetry (PC & ESP32 JSON Stream)
+  if (now - lastTelemetryTime >= 1000) {
+    lastTelemetryTime = now;
+    if (!isAutoTracking) {
+      printTelemetry(0, 0, 0, "MANUAL (Potentiometer Active)");
+    }
+    sendEsp32JsonTelemetry();
+  }
+
+  // 6. Heartbeat LED (Toggles every 1s when active)
   if (now - lastHeartbeatTime >= 1000) {
     lastHeartbeatTime = now;
     heartbeatState = !heartbeatState;
