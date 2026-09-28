@@ -28,6 +28,7 @@
 | **TEST-10** | Phase 6 | STM32 USB-Serial Telemetry & Shell | STM32 USB CDC / UART | **PLANNED** | Interactive command parser & status |
 | **TEST-11** | Phase 7 | STM32 $\leftrightarrow$ ESP UART Link | STM32 UART $\leftrightarrow$ ESP8266/ESP32 | **PLANNED** | Structured JSON telemetry & ACK |
 | **TEST-12** | Phase 8 | ESP Cloud Ingestion & WiFi Uplink | ESP $\rightarrow$ MQTT / HTTP Cloud | **PLANNED** | Field telemetry streaming |
+| **TEST-13** | Phase 4 | STM32 Closed-Loop LDR Sun Tracking | STM32 + A4988 + NEMA 17 + LDRs | **READY** | Real-time differential sun pursuit within $\pm 40^\circ$ |
 
 ---
 
@@ -95,6 +96,28 @@
   - When shining torch on left: `avgLeft > avgRight`, error positive, reports "SUN ON LEFT -> Stepper moves Positive (+)".
   - When shining torch on right: `avgRight > avgLeft`, error negative, reports "SUN ON RIGHT -> Stepper moves Negative (-)".
   - When covered / darkness: Reports "NIGHT / INSUFFICIENT SUNLIGHT (Tracker Sleeps)".
+
+### TEST-13: STM32 Closed-Loop LDR Sun Tracking & Motor Actuation
+- **Status:** **READY FOR HARDWARE BENCH RUN**
+- **Date:** 2026-09-28
+- **Objective:** Autonomous closed-loop sun tracking using LDR differential array, commanding NEMA 17 via A4988 driver within $[-40.0^\circ, +40.0^\circ]$ on STM32 Blue Pill.
+- **Hardware Setup:**
+  - STM32 `PB8` $\rightarrow$ A4988 `STEP`
+  - STM32 `PB9` $\rightarrow$ A4988 `DIR`
+  - STM32 `PB10` $\rightarrow$ A4988 `ENABLE` (Active LOW)
+  - STM32 `PA0` $\rightarrow$ LDR Left / Top-Left (TL)
+  - STM32 `PA1` $\rightarrow$ LDR Right / Top-Right (TR)
+  - STM32 `PA4` $\rightarrow$ LDR Bottom-Left (BL) [Optional]
+  - STM32 `PA5` $\rightarrow$ LDR Bottom-Right (BR) [Optional]
+  - STM32 `PB11` $\rightarrow$ Hall-Effect Home Sensor
+  - USB-to-TTL on `PA9`/`PA10` (9600 baud)
+- **Code:** [`firmware/stm32_ldr_sun_tracking/stm32_ldr_sun_tracking.ino`](firmware/stm32_ldr_sun_tracking/stm32_ldr_sun_tracking.ino)
+- **Expected Result:**
+  - Auto-detects 2-LDR or 4-LDR sensor input.
+  - When flashlight is moved across LDRs, motor steps smoothly in $1.0^\circ$ increments pursuing the light.
+  - When aligned within deadband ($\pm 120$ counts), motor stops and de-energizes coils (`ENABLE = HIGH`), consuming 0W idle power with zero buzzing.
+  - Strict software clamping keeps angle between $-40.0^\circ$ and $+40.0^\circ$.
+
 
 
 
