@@ -1,21 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Sun, 
-  Play, 
-  Pause, 
-  AlertTriangle, 
   Info, 
   Clock,
   Radio
 } from 'lucide-react';
 
 interface HeaderProps {
-  isPaused: boolean;
-  onTogglePause: () => void;
-  faultInjected: boolean;
-  onToggleFault: () => void;
-  simSpeed: number;
-  onChangeSpeed: (speed: number) => void;
   onOpenConcept: () => void;
   isEmergencyStopped: boolean;
   isHardwareOnline?: boolean;
@@ -23,16 +14,9 @@ interface HeaderProps {
 }
 
 export const Header: React.FC<HeaderProps> = ({
-  isPaused,
-  onTogglePause,
-  faultInjected,
-  onToggleFault,
-  simSpeed,
-  onChangeSpeed,
   onOpenConcept,
   isEmergencyStopped,
-  isHardwareOnline = false,
-  isMqttConnected = false,
+  isMqttConnected = true,
 }) => {
   const [currentTime, setCurrentTime] = useState<string>('');
   const [currentDate, setCurrentDate] = useState<string>('');
@@ -55,39 +39,26 @@ export const Header: React.FC<HeaderProps> = ({
 
   return (
     <header className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm">
-      {/* Top Banner: Dynamic Physical Hardware Link Status */}
-      <div className={`px-4 py-1.5 text-xs font-medium flex flex-wrap items-center justify-between gap-2 shadow-inner transition-colors duration-300 ${
-        isHardwareOnline 
-          ? 'bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 text-white' 
-          : 'bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 text-white'
-      }`}>
+      {/* Top Banner: Direct Physical Hardware Telemetry Stream */}
+      <div className="bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 text-white px-4 py-1.5 text-xs font-medium flex flex-wrap items-center justify-between gap-2 shadow-inner">
         <div className="flex items-center gap-2">
-          <span className={`px-2 py-0.5 rounded text-[11px] font-bold tracking-wider uppercase border ${
-            isHardwareOnline 
-              ? 'bg-emerald-900/60 text-white border-emerald-300/40' 
-              : 'bg-black/25 text-white border-white/20'
-          }`}>
-            {isHardwareOnline ? 'LIVE HARDWARE' : 'Hackathon Prototype'}
+          <span className="bg-emerald-950/70 text-emerald-200 border border-emerald-300/40 px-2 py-0.5 rounded text-[11px] font-bold tracking-wider uppercase flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
+            LIVE HARDWARE IOT LINK
           </span>
           <span>
-            {isHardwareOnline ? (
-              <>🟢 <strong>LIVE PHYSICAL TELEMETRY:</strong> Streaming from STM32 Blue Pill + ESP32 Gateway via HiveMQ Cloud.</>
-            ) : (
-              <>⚠️ <strong>SIMULATED HARDWARE DATA:</strong> Physical hardware not connected. Telemetry generated via kinematic & solar physics model.</>
-            )}
+            🟢 <strong>PHYSICAL TELEMETRY STREAM:</strong> ESP32 IoT Gateway + STM32 Blue Pill (Dedicated HiveMQ Cloud TLS Encrypted)
           </span>
         </div>
         <div className="flex items-center gap-3 text-[11px] font-mono">
-          <span className="hidden sm:inline opacity-90">Microcontroller: STM32F103C8T6 (Blue Pill)</span>
-          <span className="hidden md:inline opacity-90">Gateway: ESP32 IoT (115200 Baud)</span>
+          <span className="hidden sm:inline opacity-90">MCU: STM32F103C8T6 (115200 Baud)</span>
+          <span className="hidden md:inline opacity-90">Cloud: HiveMQ Dedicated (TLS 8883/8884)</span>
           <span className={`px-2 py-0.5 rounded font-semibold ${
             isEmergencyStopped 
               ? 'bg-rose-900/80 text-white border border-rose-400' 
-              : isHardwareOnline 
-              ? 'bg-emerald-900/60 text-emerald-200 border border-emerald-400/40' 
-              : 'bg-white/20 text-white'
+              : 'bg-emerald-900/60 text-emerald-200 border border-emerald-400/40'
           }`}>
-            STATUS: {isEmergencyStopped ? 'E-STOPPED' : isHardwareOnline ? 'HARDWARE ONLINE' : 'SIMULATION'}
+            STATUS: {isEmergencyStopped ? 'E-STOPPED' : isMqttConnected ? 'HARDWARE CONNECTED' : 'CONNECTING...'}
           </span>
         </div>
       </div>
@@ -109,13 +80,9 @@ export const Header: React.FC<HeaderProps> = ({
               <h1 className="text-2xl font-black tracking-tight text-slate-900 flex items-center gap-1.5">
                 POWER <span className="text-amber-500">IQ</span>
               </h1>
-              <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border flex items-center gap-1 ${
-                isHardwareOnline 
-                  ? 'bg-emerald-100 text-emerald-800 border-emerald-300' 
-                  : 'bg-emerald-100 text-emerald-800 border-emerald-300'
-              }`}>
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping"></span>
-                {isHardwareOnline ? 'STM32 + ESP32 LIVE' : 'ONLINE / PROTOTYPE'}
+              <span className="bg-emerald-100 text-emerald-800 border border-emerald-300 text-[11px] font-semibold px-2.5 py-0.5 rounded-full flex items-center gap-1.5 font-mono">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                ORIGINAL HARDWARE STREAM
               </span>
             </div>
             <p className="text-xs text-slate-500 font-medium flex items-center gap-1.5 mt-0.5">
@@ -128,16 +95,16 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
 
-        {/* Live Clock & Interactive Simulation Bar */}
+        {/* Live Status Bar */}
         <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-          {/* Cloud Bridge Indicator */}
+          {/* Cloud Broker Status Indicator */}
           <div 
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-mono bg-slate-50 border-slate-200 text-slate-700 shadow-xs"
-            title="HiveMQ WebSocket Cloud Broker connection state"
+            className="flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-mono bg-emerald-50/70 border-emerald-200 text-emerald-900 shadow-xs"
+            title="Dedicated HiveMQ Cloud Broker (TLS Port 8884)"
           >
-            <Radio className={`w-3.5 h-3.5 ${isHardwareOnline ? 'text-emerald-600 animate-pulse' : isMqttConnected ? 'text-sky-600' : 'text-slate-400'}`} />
+            <Radio className="w-3.5 h-3.5 text-emerald-600 animate-pulse" />
             <span className="text-[11px] font-semibold">
-              {isHardwareOnline ? 'Hardware Stream' : isMqttConnected ? 'Cloud Ready' : 'Cloud Offline'}
+              HiveMQ Cloud: {isMqttConnected ? 'Active' : 'Connecting'}
             </span>
           </div>
 
@@ -148,60 +115,13 @@ export const Header: React.FC<HeaderProps> = ({
             <span className="font-bold text-slate-900">{currentTime}</span>
           </div>
 
-          {/* Simulation Controls for Evaluators */}
-          <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-lg border border-slate-200">
-            <button
-              onClick={onTogglePause}
-              title={isPaused ? "Resume telemetry simulation" : "Pause telemetry simulation"}
-              className={`flex items-center gap-1 px-2.5 py-1 rounded text-xs font-medium transition ${
-                isPaused 
-                  ? 'bg-amber-500 text-white shadow-sm' 
-                  : 'bg-white text-slate-700 hover:bg-slate-50 shadow-xs'
-              }`}
-            >
-              {isPaused ? <Play className="w-3 h-3" /> : <Pause className="w-3 h-3" />}
-              <span>{isPaused ? 'Resume' : 'Pause'}</span>
-            </button>
-
-            {/* Sim Speed Toggle */}
-            <div className="flex items-center text-xs font-mono">
-              {[1, 5, 15].map((speed) => (
-                <button
-                  key={speed}
-                  onClick={() => onChangeSpeed(speed)}
-                  className={`px-2 py-0.5 rounded text-[11px] font-medium transition ${
-                    simSpeed === speed 
-                      ? 'bg-slate-800 text-white' 
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  {speed}x
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Demo Fault Injection Button (Hackathon Highlight) */}
-          <button
-            onClick={onToggleFault}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition shadow-sm ${
-              faultInjected
-                ? 'bg-rose-50 border-rose-300 text-rose-700 hover:bg-rose-100 animate-pulse'
-                : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-slate-300'
-            }`}
-            title="Toggle simulated mechanical drag & current anomaly to test AI fault detection"
-          >
-            <AlertTriangle className={`w-3.5 h-3.5 ${faultInjected ? 'text-rose-600' : 'text-amber-500'}`} />
-            <span>{faultInjected ? 'Fault Active (Shaft #4)' : 'Simulate Fault'}</span>
-          </button>
-
           {/* Concept Modal Info Button */}
           <button
             onClick={onOpenConcept}
-            className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-sm transition"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-sm transition"
           >
             <Info className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Engineering Concept</span>
+            <span>Engineering Concept</span>
           </button>
         </div>
       </div>

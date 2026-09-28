@@ -19,13 +19,8 @@ export const App: React.FC = () => {
 
   const {
     hourDecimal,
-    isPaused,
-    setIsPaused,
-    simSpeed,
-    setSimSpeed,
     trackingMode,
     isEmergencyStopped,
-    faultInjected,
     shafts,
     motor,
     solar,
@@ -37,7 +32,6 @@ export const App: React.FC = () => {
     handleJogAngle,
     handleHomePosition,
     handleEmergencyStop,
-    handleToggleFault,
     isHardwareOnline,
     isMqttConnected,
     sendCommand,
@@ -45,14 +39,8 @@ export const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col antialiased">
-      {/* Top Header & Simulation Controls */}
+      {/* Top Header with Live Hardware Link Status */}
       <Header
-        isPaused={isPaused}
-        onTogglePause={() => setIsPaused((prev) => !prev)}
-        faultInjected={faultInjected}
-        onToggleFault={handleToggleFault}
-        simSpeed={simSpeed}
-        onChangeSpeed={setSimSpeed}
         onOpenConcept={() => setIsConceptOpen(true)}
         isEmergencyStopped={isEmergencyStopped}
         isHardwareOnline={isHardwareOnline}
@@ -66,7 +54,7 @@ export const App: React.FC = () => {
           solar={solar}
           motor={motor}
           tracking={tracking}
-          faultInjected={faultInjected}
+          faultInjected={false}
         />
 
         {/* 2. Generation Profile & Tracking Geometry Dial */}
@@ -93,11 +81,11 @@ export const App: React.FC = () => {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
           <MechanicalHealth
             motor={motor}
-            faultInjected={faultInjected}
+            faultInjected={false}
           />
           <AiMaintenance
             ai={ai}
-            onToggleFault={handleToggleFault}
+            onToggleFault={() => {}}
           />
         </div>
 
