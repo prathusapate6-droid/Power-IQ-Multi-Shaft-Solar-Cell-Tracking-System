@@ -34,3 +34,4 @@ lerna-debug.log*
 
 # Temporary files
 temp_extracted/
+.firebase/

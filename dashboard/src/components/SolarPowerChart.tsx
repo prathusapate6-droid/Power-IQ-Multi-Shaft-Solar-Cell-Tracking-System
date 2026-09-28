@@ -20,9 +20,11 @@ interface SolarPowerChartProps {
 
 const CustomTooltip = ({ active, payload, label }: any) => {
   if (active && payload && payload.length) {
-    const tracking = payload.find((p: any) => p.dataKey === 'trackingKw')?.value || 0;
-    const fixed = payload.find((p: any) => p.dataKey === 'fixedKw')?.value || 0;
-    const delta = tracking > fixed ? (tracking - fixed).toFixed(2) : '0.00';
+    const tracking = payload.find((p: any) => p.dataKey === 'trackingW')?.value 
+      ?? (payload.find((p: any) => p.dataKey === 'trackingKw')?.value !== undefined ? (payload.find((p: any) => p.dataKey === 'trackingKw')?.value * 1000) : 0);
+    const fixed = payload.find((p: any) => p.dataKey === 'fixedW')?.value 
+      ?? (payload.find((p: any) => p.dataKey === 'fixedKw')?.value !== undefined ? (payload.find((p: any) => p.dataKey === 'fixedKw')?.value * 1000) : 0);
+    const delta = tracking > fixed ? (tracking - fixed).toFixed(1) : '0.0';
     const gainPercent = fixed > 0 ? (((tracking - fixed) / fixed) * 100).toFixed(1) : '0';
 
     return (
@@ -39,18 +41,18 @@ const CustomTooltip = ({ active, payload, label }: any) => {
               <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
               Multi-Shaft Tracking:
             </span>
-            <span className="font-bold">{tracking} kW</span>
+            <span className="font-bold">{typeof tracking === 'number' ? tracking.toFixed(1) : tracking} W</span>
           </div>
           <div className="flex items-center justify-between gap-4">
             <span className="text-slate-400 flex items-center gap-1.5">
               <span className="w-2 h-2 rounded-full bg-slate-400"></span>
               Fixed Solar Panel:
             </span>
-            <span>{fixed} kW</span>
+            <span>{typeof fixed === 'number' ? fixed.toFixed(1) : fixed} W</span>
           </div>
           <div className="pt-1 border-t border-slate-800 flex items-center justify-between text-amber-300 font-bold">
             <span>Instant Energy Boost:</span>
-            <span>+{delta} kW</span>
+            <span>+{delta} W</span>
           </div>
         </div>
       </div>
@@ -64,6 +66,7 @@ export const SolarPowerChart: React.FC<SolarPowerChartProps> = ({
   currentHourDecimal,
 }) => {
   // Format current hour label for reference line (e.g. 14:30)
+  const isDaylight = currentHourDecimal >= 6 && currentHourDecimal <= 18;
   const currentHourInt = Math.floor(currentHourDecimal);
   const currentMinStr = currentHourDecimal % 1 >= 0.5 ? '30' : '00';
   const currentTimeStr = `${currentHourInt.toString().padStart(2, '0')}:${currentMinStr}`;
@@ -82,7 +85,7 @@ export const SolarPowerChart: React.FC<SolarPowerChartProps> = ({
             </h2>
           </div>
           <p className="text-xs text-slate-500 mt-0.5">
-            Real-time power curve vs fixed baseline
+            Real-time power curve (Watts) vs fixed baseline
           </p>
         </div>
 
@@ -90,15 +93,14 @@ export const SolarPowerChart: React.FC<SolarPowerChartProps> = ({
         <div className="flex items-center gap-4 text-xs font-medium text-slate-600">
           <div className="flex items-center gap-1.5">
             <span className="w-3 h-3 rounded-xs bg-emerald-500"></span>
-            <span>Tracking Output</span>
+            <span>Tracking Output (W)</span>
           </div>
           <div className="flex items-center gap-1.5">
             <span className="w-3 h-0.5 bg-slate-400"></span>
-            <span>Fixed Baseline</span>
+            <span>Fixed Baseline (W)</span>
           </div>
         </div>
       </div>
-
 
       {/* Recharts Area Chart */}
       <div className="h-72 w-full">
@@ -133,47 +135,49 @@ export const SolarPowerChart: React.FC<SolarPowerChartProps> = ({
               fontSize={11}
               tickLine={false}
               axisLine={{ stroke: '#e2e8f0' }}
-              tickFormatter={(val) => `${val} kW`}
-              domain={[0, 3.5]}
+              tickFormatter={(val) => `${val} W`}
+              domain={[0, (dataMax: number) => Math.max(30, Math.ceil((dataMax * 1.25) / 5) * 5)]}
             />
 
             <Tooltip content={<CustomTooltip />} />
 
             {/* Current Time Indicator */}
-            <ReferenceLine
-              x={currentTimeStr}
-              stroke="#f59e0b"
-              strokeDasharray="4 4"
-              strokeWidth={1.5}
-              label={{
-                value: 'NOW',
-                position: 'top',
-                fill: '#f59e0b',
-                fontSize: 10,
-                fontWeight: 'bold',
-              }}
-            />
+            {isDaylight && (
+              <ReferenceLine
+                x={currentTimeStr}
+                stroke="#f59e0b"
+                strokeDasharray="4 4"
+                strokeWidth={1.5}
+                label={{
+                  value: 'NOW',
+                  position: 'top',
+                  fill: '#f59e0b',
+                  fontSize: 10,
+                  fontWeight: 'bold',
+                }}
+              />
+            )}
 
             {/* Fixed Tilt Array Curve */}
             <Area
               type="monotone"
-              dataKey="fixedKw"
+              dataKey="fixedW"
               stroke="#94a3b8"
               strokeWidth={1.75}
               fillOpacity={1}
               fill="url(#fixedGradient)"
-              name="Fixed Array"
+              name="Fixed Baseline (W)"
             />
 
             {/* Multi-Shaft Tracking Curve */}
             <Area
               type="monotone"
-              dataKey="trackingKw"
+              dataKey="trackingW"
               stroke="#10b981"
               strokeWidth={2.5}
               fillOpacity={1}
               fill="url(#trackingGradient)"
-              name="Multi-Shaft Tracking"
+              name="Tracking Output (W)"
             />
           </AreaChart>
         </ResponsiveContainer>

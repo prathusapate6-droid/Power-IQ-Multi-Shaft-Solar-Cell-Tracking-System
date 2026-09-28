@@ -61,9 +61,12 @@ export interface HourlyGenerationPoint {
   hour: number;
   trackingKw: number;
   fixedKw: number;
+  trackingW: number;
+  fixedW: number;
   motorW: number;
   sunElevation: number;
 }
+
 
 export interface AiDiagnostics {
   healthScore: number;

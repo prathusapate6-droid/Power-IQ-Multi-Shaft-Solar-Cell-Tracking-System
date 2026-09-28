@@ -42,6 +42,8 @@ export function generateDiurnalCurve(currentHourDecimal: number): HourlyGenerati
         hour: h,
         trackingKw: 0,
         fixedKw: 0,
+        trackingW: 0,
+        fixedW: 0,
         motorW: 0,
         sunElevation: 0,
       });
@@ -52,6 +54,8 @@ export function generateDiurnalCurve(currentHourDecimal: number): HourlyGenerati
     // Fixed PV suffers cosine loss in morning/afternoon -> narrower peak curve
     const trackingKw = Number((Math.pow(sunSin, 0.62) * 3.12).toFixed(2));
     const fixedKw = Number((Math.pow(sunSin, 1.45) * 2.38).toFixed(2));
+    const trackingW = Number((trackingKw * 1000).toFixed(1));
+    const fixedW = Number((fixedKw * 1000).toFixed(1));
     
     // Intermittent motor active during small adjustment windows (e.g. 40W active, 4W standby)
     const isStepTime = (h * 10) % 5 === 0;
@@ -62,9 +66,12 @@ export function generateDiurnalCurve(currentHourDecimal: number): HourlyGenerati
       hour: h,
       trackingKw: h <= currentHourDecimal ? trackingKw : Number((trackingKw * 0.98).toFixed(2)),
       fixedKw: h <= currentHourDecimal ? fixedKw : Number((fixedKw * 0.98).toFixed(2)),
+      trackingW: h <= currentHourDecimal ? trackingW : Number((trackingW * 0.98).toFixed(1)),
+      fixedW: h <= currentHourDecimal ? fixedW : Number((fixedW * 0.98).toFixed(1)),
       motorW,
       sunElevation: Number((sunSin * 72).toFixed(1)),
     });
+
   }
 
   return points;

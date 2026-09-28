@@ -33,10 +33,13 @@ export function useSolarSimulation() {
         hour: h,
         trackingKw: 0,
         fixedKw: 0,
+        trackingW: 0,
+        fixedW: 0,
         motorW: 0,
         sunElevation: 0,
       });
     }
+
     return points;
   });
 
@@ -102,19 +105,25 @@ export function useSolarSimulation() {
     // Update the diurnal data curve around the current time
     setDiurnalData((prev) => {
       const curH = new Date().getHours() + new Date().getMinutes() / 60;
+      // If daytime (6-18), track current hour. If bench testing at night, map to 12:00 noon slot
+      const targetH = curH >= 6 && curH <= 18 ? curH : 12;
       return prev.map((p) => {
-        if (Math.abs(p.hour - curH) < 0.6) {
+        if (Math.abs(p.hour - targetH) < 0.6) {
+          const w = solarPowerW > 0 ? solarPowerW : 0;
           return {
             ...p,
             trackingKw: solarPowerKw > 0 ? solarPowerKw : 0.05,
             fixedKw: solarPowerKw > 0 ? Number((solarPowerKw * 0.72).toFixed(3)) : 0.03,
+            trackingW: w,
+            fixedW: Number((w * 0.72).toFixed(1)),
             sunElevation: Math.max(10, Math.round(90 - Math.abs(actualShaftAngle))),
           };
         }
         return p;
       });
     });
-  }, [telemetry, solarPowerKw, actualShaftAngle]);
+  }, [telemetry, solarPowerKw, solarPowerW, actualShaftAngle]);
+
 
   // 8 Parallel Shafts Data synchronized to the real physical slat angle
   const shafts: ShaftData[] = [
