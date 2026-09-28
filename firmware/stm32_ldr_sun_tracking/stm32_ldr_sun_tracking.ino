@@ -1,27 +1,30 @@
 /*
 ================================================================================
  POWER IQ — Low-Power Multi-Shaft Solar Cell Tracking System
- Subsystem: STM32 Closed-Loop Sun Tracking + Midpoint Datum Homing + Night Park
+ Subsystem: STM32 Ultra-Sensitive Sun Tracking + Night Park Delay (8s)
  Platform : STM32F103C8T6 "Blue Pill" (32-bit ARM Cortex-M3 @ 72 MHz)
  Authors  : Prathamesh Sapate (Lead), Shreyash Pachade, Vansh Dobhale, Prachi Ronge
- Purpose  : High-Precision Sun Tracker with Wide-Magnet Centering & Night Auto-Park
+ Purpose  : High-Sensitivity Sun Tracking for Dim/Low-Angle Light & 8s Night Hold
 ================================================================================
 
- ENHANCED FEATURES IN THIS FIRMWARE:
-   1. WIDE-MAGNET MIDPOINT CENTERING:
-      - Automatically measures the physical width of the Hall magnet (0° to 10° span).
-      - Reverses and positions the motor exactly at the true geometric center of the
-        magnetic field, eliminating the 10° hysteresis error completely!
-   2. NIGHT AUTO-RETURN TO HOME (0.0°):
-      - When darkness is detected (all LDRs dark / low light), the tracker automatically
-        rotates back to 0.0° (flat horizontal home datum) and sleeps with 0W coils OFF.
-      - Automatically wakes up and resumes sun pursuit when daylight returns.
-   3. CORRECTED TRACKING ORIENTATION:
-      - TOP (PA0 + PA1) lit    -> Tilts towards PLUS (+) to face the sun.
-      - BOTTOM (PA4 + PA5) lit -> Tilts towards MINUS (-) to face the sun.
-      - All 4 lit equally      -> BALANCED: 100% Solar Yield, Coils 0W Locked.
-   4. ULTRA-LOW LATENCY & FAST GLIDE:
-      - 1200us pulse delay (416 steps/sec) + 250ms fast tracking evaluation loop.
+ ENHANCEMENTS IN THIS REVISION:
+   1. ULTRA-HIGH SENSITIVITY FOR DIM & LOW-ANGLE SUNLIGHT:
+      - Threshold lowered so even dim ambient light (ADC delta of 25-35 counts)
+        is immediately captured and tracked with precision!
+      - Low sun angles (grazing morning/evening sun) are smoothly tracked until
+        all 4 sensors balance perpendicularly (100% solar yield).
+   2. 8-SECOND HOLD BEFORE NIGHT PARK:
+      - When darkness or shadow is detected, the tracker does NOT jump to zero.
+        It firmly HOLDS its current angle for 8 full seconds!
+      - If light returns within 8s, it continues tracking seamlessly without moving.
+      - Only after 8 continuous seconds of dark does it park at 0.0° Home (0W sleep).
+   3. ADAPTIVE DEADBAND:
+      - Scales dynamically from 35 counts (in dim light) to 120 counts (in blazing sun),
+        preventing hunting while offering extreme sensitivity to faint light.
+   4. MICRO-STEPPING PRECISION:
+      - Micro-steps of 0.3° to 1.5° ensure smooth alignment without overshoot.
+   5. WIDE-MAGNET MIDPOINT CENTERING:
+      - Measures the physical 10° span of the Hall magnet and centers at the true 0.0°.
 ================================================================================
 */
 
@@ -51,10 +54,11 @@ int stepPulseDelayUs = 1200;
 const float MIN_ANGLE = -40.0f;
 const float MAX_ANGLE =  40.0f;
 
-// ---------------- RESPONSIVE TRACKING PARAMETERS ----------------
-int deadbandThreshold   = 150;  // Optical deadband tolerance (balanced zone)
-int nightDarkThreshold  = 200;  // Below this is darkness / night
-unsigned long trackingIntervalMs = 250; // Ultra-responsive: 4 checks per second
+// ---------------- ULTRA-SENSITIVE TRACKING PARAMETERS ----------------
+int deadbandThreshold   = 35;   // Adaptive deadband floor (sensitive to faint light!)
+int nightDarkThreshold  = 45;   // True darkness threshold (allows dim light tracking)
+unsigned long trackingIntervalMs = 250; // 4 checks per second (Zero Latency)
+const unsigned long NIGHT_PARK_DELAY_MS = 8000; // 8 seconds hold before parking at home
 
 bool isAutoTracking  = true;    // True = Auto Tracking, False = Manual mode
 bool invertDirection = false;   // Flip direction if needed
@@ -63,6 +67,7 @@ bool invertDirection = false;   // Flip direction if needed
 float currentAngle = 0.0f;
 bool isHomed = false;
 unsigned long lastTrackTime = 0;
+unsigned long darknessStartMs = 0; // Timer for 8-second night hold
 unsigned long frameCount = 0;
 
 // ---------------- LEAN DUAL-SERIAL OUTPUT ----------------
@@ -119,7 +124,7 @@ void moveToAngle(float targetAngle);
 void runStartupHomingSequence();
 void processSerialInput();
 void executeSunTracking();
-void printTelemetry(int topVal, int botVal, int diff, float intensityPct, const char* stateStr);
+void printTelemetry(int topVal, int botVal, int diff, float intensityPct, const char* stateStr, int deadbandVal);
 void printHelp();
 
 // =============================================================================
@@ -152,11 +157,11 @@ void setup() {
 
   printlnAll();
   printlnAll(F("============================================================================"));
-  printlnAll(F(" POWER IQ — SMART SUN TRACKER + MIDPOINT HOMING + NIGHT AUTO-PARK           "));
+  printlnAll(F(" POWER IQ — HIGH-SENSITIVITY SUN TRACKER + 8s NIGHT HOLD TIMER              "));
   printlnAll(F(" Architecture : 32-bit ARM Cortex-M3 @ 72 MHz (100% Pure STM32)             "));
-  printlnAll(F(" Orientation  : TOP (PA0+PA1) -> [+], BOTTOM (PA4+PA5) -> [-]               "));
-  printlnAll(F(" Features     : 10 deg Magnet Centering | Night Auto-Return to 0.0 deg       "));
-  printlnAll(F(" Speed Tuning : Fast 1200 us pulses | 250 ms Fast Tracking Loop              "));
+  printlnAll(F(" Sensitivity  : Adaptive Floor 35 counts | Night Threshold: 45 counts       "));
+  printlnAll(F(" Night Delay  : Holds position 8s before auto-parking at 0.0 deg            "));
+  printlnAll(F(" Alignment    : Perpendicular Solar Capture (100% Balanced Yield)           "));
   printlnAll(F(" Safety Limits: -40.0 deg to +40.0 deg (80.0 deg Total Travel)               "));
   printlnAll(F("============================================================================"));
 
@@ -199,7 +204,6 @@ void runStartupHomingSequence() {
   }
 
   if (!foundEdge1) {
-    // If not found in positive direction, search negative
     digitalWrite(PIN_DIR, LOW);
     for (long s = 0; s < maxSearchSteps * 2; s++) {
       if (digitalRead(PIN_HALL_HOME) == LOW) {
@@ -211,7 +215,7 @@ void runStartupHomingSequence() {
   }
 
   if (foundEdge1) {
-    // Phase 2: Measure Physical Magnet Width (Step from Edge 1 until it exits to Edge 2)
+    // Phase 2: Measure Physical Magnet Width (Step until it exits to Edge 2)
     long spanSteps = 0;
     long maxSpan = (long)(25.0f * stepsPerDegree); // Maximum expected magnet width (25 deg)
     while (digitalRead(PIN_HALL_HOME) == LOW && spanSteps < maxSpan) {
@@ -261,12 +265,12 @@ void loop() {
 }
 
 // =============================================================================
-// HIGH-SPEED SUN TRACKING ALGORITHM
+// HIGH-SENSITIVITY SUN TRACKING ALGORITHM
 // =============================================================================
 void executeSunTracking() {
   frameCount++;
 
-  // 1. Oversample 4 LDRs (250us per sample)
+  // 1. Oversample 4 LDRs (100us per sample)
   long sumT1 = 0, sumT2 = 0, sumB1 = 0, sumB2 = 0;
   for (int i = 0; i < 4; i++) {
     sumT1 += analogRead(PIN_LDR_TOP1);
@@ -287,6 +291,11 @@ void executeSunTracking() {
   int lightB1 = 4095 - rawB1;
   int lightB2 = 4095 - rawB2;
 
+  if (lightT1 < 0) lightT1 = 0;
+  if (lightT2 < 0) lightT2 = 0;
+  if (lightB1 < 0) lightB1 = 0;
+  if (lightB2 < 0) lightB2 = 0;
+
   // 3. Compute Sector Light Intensities:
   // TOP SECTOR    = Average of PA0 & PA1
   // BOTTOM SECTOR = Average of PA4 & PA5
@@ -302,76 +311,101 @@ void executeSunTracking() {
   int totalAmbient = (avgTop + avgBottom) / 2;
   float intensityPct = (totalAmbient / 4095.0f) * 100.0f;
 
-  // 5. Decision Engine & Adaptive Step Size
+  // 5. Adaptive Deadband (5% of light level, floor = deadbandThreshold):
+  // Dim light -> Deadband is only 35 counts (Extreme sensitivity!)
+  // Bright sunlight -> Deadband scales up to 120 counts (Eliminates jitter)
+  int activeDeadband = (int)(totalAmbient * 0.05f);
+  if (activeDeadband < deadbandThreshold) activeDeadband = deadbandThreshold;
+  if (activeDeadband > 120) activeDeadband = 120;
+
+  // 6. Decision Engine & Proportional Micro-Stepping
   const char* trackingState = "BALANCED";
 
   if (totalAmbient < nightDarkThreshold) {
-    // ---------------- NIGHT MODE: AUTO-RETURN TO 0.0 DEG HOME ----------------
-    if (abs(currentAngle) > 0.5f) {
-      trackingState = "NIGHT DETECTED -> Parking at 0.0 deg HOME";
-      if (isAutoTracking) {
-        moveToAngle(0.0f);
-      }
-    } else {
-      trackingState = "NIGHT SLEEP (Parked at 0.0 deg, 0W Coils OFF)";
-      motorOff();
+    // ---------------- LOW LIGHT / DARKNESS DETECTED ----------------
+    // Start timing continuous darkness. DO NOT immediately jump to zero!
+    if (darknessStartMs == 0) {
+      darknessStartMs = millis();
     }
-  }
-  else if (abs(diff) <= deadbandThreshold) {
-    // ---------------- 100% BALANCED / DIRECT SUN ALIGNMENT ----------------
-    // When all sensors are lit and balanced, panel is normal to the sun!
-    trackingState = "BALANCED -> SUN LOCKED (100% Solar Yield)";
-    motorOff(); // 100% silent and cool (0W power)
-  }
-  else if (diff > deadbandThreshold) {
-    // ---------------- SUN IS ON TOP (PA0 + PA1) ----------------
-    // Move towards PLUS (+) side to align with the sun
-    float stepDeg = 1.0f;
-    if (abs(diff) > 1500) stepDeg = 2.0f;       // Large angle gap -> Fast glide
-    else if (abs(diff) < 500) stepDeg = 0.5f;   // Small gap -> Fine micro-adjustment
 
-    if (isAutoTracking) {
-      float nextAngle = currentAngle + stepDeg;
-      if (nextAngle <= MAX_ANGLE) {
-        trackingState = "SUN ON TOP (PA0+PA1) -> Moving (+)";
-        moveToAngle(nextAngle);
+    unsigned long darkDuration = millis() - darknessStartMs;
+    if (darkDuration >= NIGHT_PARK_DELAY_MS) {
+      // Confirmed continuous darkness for 8+ seconds -> Smoothly Park at 0.0 deg
+      if (abs(currentAngle) > 0.5f) {
+        trackingState = "NIGHT CONFIRMED (8s) -> Parking at 0.0 deg";
+        if (isAutoTracking) {
+          moveToAngle(0.0f);
+        }
       } else {
-        trackingState = "LIMIT REACHED (+40.0 deg MAX)";
+        trackingState = "NIGHT SLEEP (Parked at 0.0 deg, 0W Coils OFF)";
+        motorOff();
       }
     } else {
-      trackingState = "SUN ON TOP (Manual Mode)";
+      // During the 0 to 8 seconds: FIRMLY HOLD CURRENT POSITION!
+      trackingState = "LOW LIGHT -> HOLDING POSITION (8s Timer)";
+      motorOff(); // 0W coils off, worm gear holds current angle firmly
     }
   }
   else {
-    // ---------------- SUN IS ON BOTTOM (PA4 + PA5) ----------------
-    // Move towards MINUS (-) side to align with the sun
-    float stepDeg = 1.0f;
-    if (abs(diff) > 1500) stepDeg = 2.0f;
-    else if (abs(diff) < 500) stepDeg = 0.5f;
+    // Light is present! Reset darkness timer immediately
+    darknessStartMs = 0;
 
-    if (isAutoTracking) {
-      float nextAngle = currentAngle - stepDeg;
-      if (nextAngle >= MIN_ANGLE) {
-        trackingState = "SUN ON BOTTOM (PA4+PA5) -> Moving (-)";
-        moveToAngle(nextAngle);
+    if (abs(diff) <= activeDeadband) {
+      // ---------------- 100% BALANCED / PERPENDICULAR SUN ALIGNMENT ----------------
+      // Both sectors are equal (within deadband) -> Panels are parallel/perpendicular to the sun!
+      trackingState = "BALANCED -> SUN LOCKED (100% Solar Yield)";
+      motorOff(); // 100% silent and cool (0W power)
+    }
+    else if (diff > activeDeadband) {
+      // ---------------- SUN IS ON TOP (PA0 + PA1) ----------------
+      // Move towards PLUS (+) side to align with the sun
+      float stepDeg = 0.8f;
+      if (abs(diff) > 1000) stepDeg = 1.5f;     // Large gap -> Fast glide
+      else if (abs(diff) < 200) stepDeg = 0.3f; // Small gap -> Precision micro-step (0.3 deg)
+
+      if (isAutoTracking) {
+        float nextAngle = currentAngle + stepDeg;
+        if (nextAngle <= MAX_ANGLE) {
+          trackingState = "SUN ON TOP (PA0+PA1) -> Moving (+)";
+          moveToAngle(nextAngle);
+        } else {
+          trackingState = "LIMIT REACHED (+40.0 deg MAX)";
+        }
       } else {
-        trackingState = "LIMIT REACHED (-40.0 deg MIN)";
+        trackingState = "SUN ON TOP (Manual Mode)";
       }
-    } else {
-      trackingState = "SUN ON BOTTOM (Manual Mode)";
+    }
+    else {
+      // ---------------- SUN IS ON BOTTOM (PA4 + PA5) ----------------
+      // Move towards MINUS (-) side to align with the sun
+      float stepDeg = 0.8f;
+      if (abs(diff) > 1000) stepDeg = 1.5f;
+      else if (abs(diff) < 200) stepDeg = 0.3f;
+
+      if (isAutoTracking) {
+        float nextAngle = currentAngle - stepDeg;
+        if (nextAngle >= MIN_ANGLE) {
+          trackingState = "SUN ON BOTTOM (PA4+PA5) -> Moving (-)";
+          moveToAngle(nextAngle);
+        } else {
+          trackingState = "LIMIT REACHED (-40.0 deg MIN)";
+        }
+      } else {
+        trackingState = "SUN ON BOTTOM (Manual Mode)";
+      }
     }
   }
 
-  // 6. Print Live Telemetry Frame every 4 cycles (approx every 1.0 second)
+  // 7. Print Live Telemetry Frame every 4 cycles (approx every 1.0 second)
   if (frameCount % 4 == 0) {
-    printTelemetry(avgTop, avgBottom, diff, intensityPct, trackingState);
+    printTelemetry(avgTop, avgBottom, diff, intensityPct, trackingState, activeDeadband);
   }
 }
 
 // =============================================================================
 // TELEMETRY OUTPUT TO SERIAL MONITOR
 // =============================================================================
-void printTelemetry(int topVal, int botVal, int diff, float intensityPct, const char* stateStr) {
+void printTelemetry(int topVal, int botVal, int diff, float intensityPct, const char* stateStr, int deadbandVal) {
   printlnAll(F("----------------------------------------------------------------------------"));
   printAll(F(" [POWER IQ] Angle: "));
   if (currentAngle >= 0) printAll(F("+"));
@@ -385,7 +419,7 @@ void printTelemetry(int topVal, int botVal, int diff, float intensityPct, const 
   printAll(F(" | Diff: "));
   if (diff >= 0) printAll(F("+"));
   printAll(diff);
-  printAll(F(" (Deadband: +/-")); printAll(deadbandThreshold); printlnAll(F(")"));
+  printAll(F(" (Adaptive Deadband: +/-")); printAll(deadbandVal); printlnAll(F(")"));
 
   printAll(F(" Intensity: ")); printAll(intensityPct, 1);
   printAll(F("% | Hall Magnet: "));
@@ -495,9 +529,9 @@ void handleCommand(char* cmd) {
   }
   else if (strncasecmp(cmd, "DEADBAND ", 9) == 0) {
     int val = atoi(cmd + 9);
-    if (val > 10 && val < 1000) {
+    if (val >= 10 && val <= 1000) {
       deadbandThreshold = val;
-      printAll(F("\n[CMD] Deadband updated to: "));
+      printAll(F("\n[CMD] Deadband floor updated to: "));
       printlnAll(deadbandThreshold);
     }
   }
@@ -511,12 +545,14 @@ void handleCommand(char* cmd) {
   }
   else if (strcasecmp(cmd, "STATUS") == 0) {
     printlnAll(F("\n--- SYSTEM STATUS ---"));
-    printAll(F(" Angle        : ")); printAll(currentAngle, 1); printlnAll(F(" deg"));
-    printAll(F(" Tracking Mode: ")); printlnAll(isAutoTracking ? F("AUTO") : F("MANUAL"));
-    printAll(F(" Pulse Delay  : ")); printAll(stepPulseDelayUs); printlnAll(F(" us"));
-    printAll(F(" Steps/Deg    : ")); printlnAll(stepsPerDegree, 4);
-    printAll(F(" Deadband     : ")); printlnAll(deadbandThreshold);
-    printAll(F(" Hall Homed   : ")); printlnAll(isHomed ? F("YES") : F("NO"));
+    printAll(F(" Angle          : ")); printAll(currentAngle, 1); printlnAll(F(" deg"));
+    printAll(F(" Tracking Mode  : ")); printlnAll(isAutoTracking ? F("AUTO") : F("MANUAL"));
+    printAll(F(" Pulse Delay    : ")); printAll(stepPulseDelayUs); printlnAll(F(" us"));
+    printAll(F(" Steps/Deg      : ")); printlnAll(stepsPerDegree, 4);
+    printAll(F(" Deadband Floor : ")); printlnAll(deadbandThreshold);
+    printAll(F(" Night Threshold: ")); printlnAll(nightDarkThreshold);
+    printAll(F(" Night Park Wait: ")); printlnAll(F("8 seconds"));
+    printAll(F(" Hall Homed     : ")); printlnAll(isHomed ? F("YES") : F("NO"));
     printlnAll(F("---------------------\n"));
   }
   else if (strcasecmp(cmd, "HELP") == 0 || strcmp(cmd, "?") == 0) {
@@ -592,7 +628,7 @@ void printHelp() {
   printlnAll(F(" GOTO <deg>    : Move slats to specific angle (-40 to +40)"));
   printlnAll(F(" ZERO          : Calibrate current position as 0.0 deg  "));
   printlnAll(F(" SPEED <us>    : Change step pulse delay (default: 1200)"));
-  printlnAll(F(" DEADBAND <n>  : Adjust optical deadband (default: 150)  "));
+  printlnAll(F(" DEADBAND <n>  : Adjust deadband floor (default: 35)    "));
   printlnAll(F(" CAL <float>   : Adjust steps/deg factor (default: 10.556)"));
   printlnAll(F(" INVERT        : Flip motor tracking direction (+/-)    "));
   printlnAll(F(" STATUS        : Display system parameters & sensors     "));
