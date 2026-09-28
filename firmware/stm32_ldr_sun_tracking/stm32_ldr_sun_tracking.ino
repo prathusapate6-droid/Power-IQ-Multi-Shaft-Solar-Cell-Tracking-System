@@ -4,7 +4,7 @@
  Subsystem: STM32 Closed-Loop 4-Quadrant LDR Sun Tracking & Stepper Actuator
  Platform : STM32F103C8T6 "Blue Pill" (32-bit ARM Cortex-M3 @ 72 MHz)
  Authors  : Prathamesh Sapate (Lead), Shreyash Pachade, Vansh Dobhale, Prachi Ronge
- Purpose  : Real-time Closed-Loop Sun Tracking with NEMA 17 + A4988 + LDR Array
+ Purpose  : High-Performance, Flash-Optimized Closed-Loop Sun Tracking
 ================================================================================
 
  HARDWARE WIRING SPECIFICATIONS (100% PURE STM32 BLUE PILL):
@@ -23,8 +23,8 @@
  2. 4-QUADRANT LDR SUN SENSORS (12-bit ADC1: 0 - 4095):
     - Left / Top-Left (TL)     -> STM32 Pin PA0 (ADC1_IN0)
     - Right / Top-Right (TR)   -> STM32 Pin PA1 (ADC1_IN1)
-    - Bottom-Left (BL)         -> STM32 Pin PA4 (ADC1_IN4) [Optional / 4-LDR]
-    - Bottom-Right (BR)        -> STM32 Pin PA5 (ADC1_IN5) [Optional / 4-LDR]
+    - Bottom-Left (BL)         -> STM32 Pin PA4 (ADC1_IN4) [Optional]
+    - Bottom-Right (BR)        -> STM32 Pin PA5 (ADC1_IN5) [Optional]
     - LDR VCC                  -> STM32 Pin 3.3V ONLY (NOT 5V!)
     - LDR GND                  -> STM32 GND (via 10k pull-downs for bare LDRs)
 
@@ -37,12 +37,11 @@
     - USB-to-TTL TX            -> STM32 Pin PA10 (USART1_RX)
     - USB-to-TTL GND           -> STM32 GND
 
- FLASHING INSTRUCTIONS:
-   1. Set BOOT0 = 1 (jumper towards 3.3V). Set BOOT1 = 0.
-   2. Press RESET button on STM32 Blue Pill.
-   3. Click 'Upload' in Arduino IDE (Generic STM32F103C series).
-   4. Set BOOT0 = 0 (jumper towards GND), press RESET button.
-   5. Open Serial Monitor at 9600 baud.
+ ARDUINO IDE TOOLS MENU SETTINGS:
+   - Board         : "Generic STM32F103C series" (NOT C6/fake C8!)
+   - Variant       : "STM32F103C8 (20k RAM. 64k Flash)"
+   - Upload method : "Serial" (or "STM32duino bootloader")
+   - CPU Speed     : "72MHz (Normal)"
 ================================================================================
 */
 
@@ -88,25 +87,50 @@ float currentAngle = 0.0f;
 unsigned long lastTrackTime = 0;
 unsigned long frameCount = 0;
 
-// ---------------- HARDWARE SERIAL DUAL-OUTPUT ----------------
+// ---------------- ULTRA-LEAN DUAL-SERIAL OUTPUT HELPERS ----------------
 #if defined(Serial1)
   #define HAS_SERIAL1 1
 #else
   #define HAS_SERIAL1 0
 #endif
 
-void printAll(const String& msg) {
+template<typename T>
+void printAll(T msg) {
   Serial.print(msg);
-  #if HAS_SERIAL1
-    Serial1.print(msg);
-  #endif
+#if HAS_SERIAL1
+  Serial1.print(msg);
+#endif
 }
 
-void printlnAll(const String& msg = "") {
+template<typename T, typename P>
+void printAll(T msg, P p) {
+  Serial.print(msg, p);
+#if HAS_SERIAL1
+  Serial1.print(msg, p);
+#endif
+}
+
+inline void printlnAll() {
+  Serial.println();
+#if HAS_SERIAL1
+  Serial1.println();
+#endif
+}
+
+template<typename T>
+void printlnAll(T msg) {
   Serial.println(msg);
-  #if HAS_SERIAL1
-    Serial1.println(msg);
-  #endif
+#if HAS_SERIAL1
+  Serial1.println(msg);
+#endif
+}
+
+template<typename T, typename P>
+void printlnAll(T msg, P p) {
+  Serial.println(msg, p);
+#if HAS_SERIAL1
+  Serial1.println(msg, p);
+#endif
 }
 
 // ---------------- FORWARD DECLARATIONS ----------------
@@ -116,7 +140,7 @@ void stepPulse();
 void moveToAngle(float targetAngle);
 void processSerialInput();
 void executeSunTracking();
-void printTelemetry(int leftVal, int rightVal, int delta, float intensityPct, const String& stateStr);
+void printTelemetry(int leftVal, int rightVal, int delta, float intensityPct, const char* stateStr);
 void printHelp();
 
 // =============================================================================
@@ -148,7 +172,7 @@ void setup() {
     Serial1.begin(9600);
   #endif
 
-  delay(1200);
+  delay(1000);
 
   printlnAll();
   printlnAll(F("============================================================================"));
@@ -207,7 +231,6 @@ void executeSunTracking() {
   int rawBR = sumBR / 4;
 
   // 2. Detect 2-LDR vs 4-LDR Mode automatically
-  // If bottom LDRs (PA4, PA5) are disconnected / floating near 0, fall back to PA0 & PA1
   int leftLight  = 0;
   int rightLight = 0;
 
@@ -229,38 +252,38 @@ void executeSunTracking() {
   float intensityPct = (avgLight / 4095.0f) * 100.0f;
 
   // 4. Decision Engine
-  String trackingState;
+  const char* trackingState = "BALANCED";
 
   if (avgLight < nightDarkThreshold) {
-    // NIGHT / INSUFFICIENT LIGHT
-    trackingState = F("NIGHT MODE (Sleeping, Coils OFF)");
+    trackingState = "NIGHT MODE (Sleeping, Coils OFF)";
   }
   else if (abs(deltaLight) <= deadbandThreshold) {
-    // BALANCED / OPTIMALLY ORIENTED AT THE SUN
-    trackingState = F("BALANCED (Sun Locked, 0W Holding)");
+    trackingState = "BALANCED (Sun Locked, 0W Holding)";
   }
   else if (deltaLight > deadbandThreshold) {
-    // SUN ON LEFT (EAST) -> Rotate positive (+)
-    trackingState = F("SUN ON LEFT -> Adjusting (+)");
     if (isAutoTracking) {
       float nextAngle = currentAngle + trackingStepAngle;
       if (nextAngle <= MAX_ANGLE) {
+        trackingState = "SUN ON LEFT -> Adjusting (+)";
         moveToAngle(nextAngle);
       } else {
-        trackingState = F("LIMIT REACHED (+40.0 deg MAX)");
+        trackingState = "LIMIT REACHED (+40.0 deg MAX)";
       }
+    } else {
+      trackingState = "SUN ON LEFT (Manual Paused)";
     }
   }
   else {
-    // SUN ON RIGHT (WEST) -> Rotate negative (-)
-    trackingState = F("SUN ON RIGHT -> Adjusting (-)");
     if (isAutoTracking) {
       float nextAngle = currentAngle - trackingStepAngle;
       if (nextAngle >= MIN_ANGLE) {
+        trackingState = "SUN ON RIGHT -> Adjusting (-)";
         moveToAngle(nextAngle);
       } else {
-        trackingState = F("LIMIT REACHED (-40.0 deg MIN)");
+        trackingState = "LIMIT REACHED (-40.0 deg MIN)";
       }
+    } else {
+      trackingState = "SUN ON RIGHT (Manual Paused)";
     }
   }
 
@@ -273,23 +296,23 @@ void executeSunTracking() {
 // =============================================================================
 // TELEMETRY OUTPUT TO SERIAL MONITOR
 // =============================================================================
-void printTelemetry(int leftVal, int rightVal, int delta, float intensityPct, const String& stateStr) {
+void printTelemetry(int leftVal, int rightVal, int delta, float intensityPct, const char* stateStr) {
   printlnAll(F("----------------------------------------------------------------------------"));
   printAll(F(" [POWER IQ] Angle: "));
   if (currentAngle >= 0) printAll(F("+"));
-  printAll(String(currentAngle, 1));
+  printAll(currentAngle, 1);
   printAll(F(" deg | Mode: "));
   printAll(isAutoTracking ? F("AUTO TRACKING") : F("MANUAL PAUSED"));
-  printAll(F(" | Frame #")); printlnAll(String(frameCount));
+  printAll(F(" | Frame #")); printlnAll(frameCount);
 
-  printAll(F(" LDR Left : ")); printAll(String(leftVal));
-  printAll(F(" | LDR Right: ")); printAll(String(rightVal));
+  printAll(F(" LDR Left : ")); printAll(leftVal);
+  printAll(F(" | LDR Right: ")); printAll(rightVal);
   printAll(F(" | Delta: "));
   if (delta >= 0) printAll(F("+"));
-  printAll(String(delta));
-  printAll(F(" (Deadband: +/-")); printAll(String(deadbandThreshold)); printlnAll(F(")"));
+  printAll(delta);
+  printAll(F(" (Deadband: +/-")); printAll(deadbandThreshold); printlnAll(F(")"));
 
-  printAll(F(" Intensity: ")); printAll(String(intensityPct, 1));
+  printAll(F(" Intensity: ")); printAll(intensityPct, 1);
   printAll(F("% | Hall Magnet: "));
   printAll(digitalRead(PIN_HALL_HOME) == LOW ? F("TRIGGERED (0.0 HOME)") : F("OPEN"));
   printlnAll();
@@ -310,7 +333,7 @@ void moveToAngle(float targetAngle) {
   float deltaDeg = targetAngle - currentAngle;
   if (fabs(deltaDeg) < 0.05f) return;
 
-  long steps = (long)round(fabs(deltaDeg) * stepsPerDegree);
+  long steps = (long)(fabs(deltaDeg) * stepsPerDegree + 0.5f);
   if (steps == 0) {
     currentAngle = targetAngle;
     return;
@@ -331,9 +354,7 @@ void moveToAngle(float targetAngle) {
   // 4. Update Position Tracker
   currentAngle = targetAngle;
 
-  // 5. Automatic Coil De-energization:
-  // Cuts current to 0W immediately. Worm gear mechanical teeth self-lock the
-  // shafts in place with zero backlash, zero heat, and zero buzzing noise.
+  // 5. Automatic Coil De-energization (0W idle holding via worm gear)
   motorOff();
   digitalWrite(PIN_STATUS_LED, HIGH); // LED OFF
 }
@@ -350,7 +371,7 @@ void stepPulse() {
 
 void motorOn() {
   digitalWrite(PIN_ENABLE, LOW); // LOW = A4988 Active
-  delay(5);                      // Charge-pump stabilization time
+  delay(5);                      // Stabilization time
 }
 
 void motorOff() {
@@ -358,52 +379,30 @@ void motorOff() {
 }
 
 // =============================================================================
-// INTERACTIVE SERIAL COMMAND PARSER
+// SERIAL COMMAND PARSER (LEAN CHAR-BUFFER IMPLEMENTATION)
 // =============================================================================
-void processSerialInput() {
-  Stream* activeStream = nullptr;
+static char cmdBuf[32];
+static byte cmdPos = 0;
 
-  if (Serial.available() > 0) {
-    activeStream = &Serial;
-  }
-  #if HAS_SERIAL1
-  else if (Serial1.available() > 0) {
-    activeStream = &Serial1;
-  }
-  #endif
+void handleCommand(char* cmd) {
+  while (*cmd == ' ') cmd++;
+  if (*cmd == 0) return;
 
-  if (activeStream == nullptr) return;
-
-  String input = activeStream->readStringUntil('\n');
-  input.trim();
-  if (input.length() == 0) return;
-
-  // 1. AUTO mode
-  if (input.equalsIgnoreCase("AUTO")) {
+  if (strcasecmp(cmd, "AUTO") == 0) {
     isAutoTracking = true;
     printlnAll(F("\n[CMD] Auto Sun Tracking ENABLED. Tracker is actively pursuing the sun!\n"));
-    return;
   }
-
-  // 2. MANUAL mode
-  if (input.equalsIgnoreCase("MANUAL") || input.equalsIgnoreCase("STOP")) {
+  else if (strcasecmp(cmd, "MANUAL") == 0 || strcasecmp(cmd, "STOP") == 0) {
     isAutoTracking = false;
     printlnAll(F("\n[CMD] Auto Sun Tracking PAUSED. Manual angle control mode active.\n"));
-    return;
   }
-
-  // 3. ZERO position calibration
-  if (input.equalsIgnoreCase("ZERO")) {
+  else if (strcasecmp(cmd, "ZERO") == 0) {
     currentAngle = 0.0f;
     printlnAll(F("\n[CMD] Current position zeroed: currentAngle = 0.0 deg (Datum set).\n"));
-    return;
   }
-
-  // 4. HOME using Hall Effect
-  if (input.equalsIgnoreCase("HOME")) {
+  else if (strcasecmp(cmd, "HOME") == 0) {
     printlnAll(F("\n[CMD] Seeking Hall-effect 0.0 deg datum..."));
     isAutoTracking = false;
-    // Step slowly towards center
     motorOn();
     digitalWrite(PIN_DIR, (currentAngle > 0) ? LOW : HIGH);
     long timeoutSteps = (long)(90.0f * stepsPerDegree);
@@ -425,84 +424,97 @@ void processSerialInput() {
       printlnAll(F("[WARN] Hall magnet not detected during travel. Resetting to 0.0 deg.\n"));
       currentAngle = 0.0f;
     }
-    return;
   }
-
-  // 5. INVERT tracking direction
-  if (input.equalsIgnoreCase("INVERT")) {
+  else if (strcasecmp(cmd, "INVERT") == 0) {
     invertDirection = !invertDirection;
     printAll(F("\n[CMD] Tracking direction inverted: "));
     printlnAll(invertDirection ? F("REVERSED") : F("NORMAL"));
-    return;
   }
-
-  // 6. DEADBAND adjustment (e.g. "DEADBAND 150")
-  if (input.startsWith("DEADBAND ") || input.startsWith("deadband ")) {
-    int val = input.substring(9).toInt();
+  else if (strncasecmp(cmd, "DEADBAND ", 9) == 0) {
+    int val = atoi(cmd + 9);
     if (val > 10 && val < 1000) {
       deadbandThreshold = val;
       printAll(F("\n[CMD] Deadband threshold updated to: "));
-      printlnAll(String(deadbandThreshold));
+      printlnAll(deadbandThreshold);
     }
-    return;
   }
-
-  // 7. CALIBRATION adjustment (e.g. "CAL 10.556")
-  if (input.startsWith("CAL ") || input.startsWith("cal ")) {
-    float val = input.substring(4).toFloat();
+  else if (strncasecmp(cmd, "CAL ", 4) == 0) {
+    float val = atof(cmd + 4);
     if (val > 0.1f && val < 100.0f) {
       stepsPerDegree = val;
       printAll(F("\n[CMD] Steps per degree updated to: "));
-      printlnAll(String(stepsPerDegree, 4));
+      printlnAll(stepsPerDegree, 4);
     }
-    return;
   }
-
-  // 8. HELP menu
-  if (input.equalsIgnoreCase("HELP") || input.equalsIgnoreCase("?")) {
+  else if (strcasecmp(cmd, "HELP") == 0 || strcmp(cmd, "?") == 0) {
     printHelp();
-    return;
   }
-
-  // 9. STATUS inquiry
-  if (input.equalsIgnoreCase("STATUS")) {
+  else if (strcasecmp(cmd, "STATUS") == 0) {
     printlnAll(F("\n--- POWER IQ SYSTEM HEALTH STATUS ---"));
-    printAll(F(" Current Angle     : ")); printAll(String(currentAngle, 1)); printlnAll(F(" deg"));
+    printAll(F(" Current Angle     : ")); printAll(currentAngle, 1); printlnAll(F(" deg"));
     printAll(F(" Tracking Mode     : ")); printlnAll(isAutoTracking ? F("AUTO") : F("MANUAL"));
-    printAll(F(" Steps Per Degree  : ")); printlnAll(String(stepsPerDegree, 4));
-    printAll(F(" Deadband Threshold: ")); printlnAll(String(deadbandThreshold));
-    printAll(F(" Pulse Delay       : ")); printAll(String(STEP_PULSE_DELAY_US)); printlnAll(F(" us"));
+    printAll(F(" Steps Per Degree  : ")); printlnAll(stepsPerDegree, 4);
+    printAll(F(" Deadband Threshold: ")); printlnAll(deadbandThreshold);
+    printAll(F(" Pulse Delay       : ")); printAll(STEP_PULSE_DELAY_US); printlnAll(F(" us"));
     printAll(F(" Hall Magnet Sensor: ")); printlnAll(digitalRead(PIN_HALL_HOME) == LOW ? F("TRIGGERED") : F("OPEN"));
     printlnAll(F("-------------------------------------\n"));
-    return;
   }
+  else {
+    // Check if it is an angle command
+    float target = 0.0f;
+    bool isAngle = false;
 
-  // 10. DIRECT ANGLE COMMAND (e.g. "GOTO 20" or "MOVE -15" or simple "25")
-  float target = 0.0f;
-  bool isAngleCmd = false;
-
-  if (input.startsWith("GOTO ") || input.startsWith("goto ")) {
-    target = input.substring(5).toFloat();
-    isAngleCmd = true;
-  } else if (input.startsWith("MOVE ") || input.startsWith("move ")) {
-    target = input.substring(5).toFloat();
-    isAngleCmd = true;
-  } else if (input.charAt(0) == '-' || input.charAt(0) == '+' || isDigit(input.charAt(0))) {
-    target = input.toFloat();
-    isAngleCmd = true;
-  }
-
-  if (isAngleCmd) {
-    if (target < MIN_ANGLE || target > MAX_ANGLE) {
-      printAll(F("\n[ERROR] Target "));
-      printAll(String(target, 1));
-      printAll(F(" deg is outside safe travel [-40.0 deg to +40.0 deg]!\n"));
-      return;
+    if (strncasecmp(cmd, "GOTO ", 5) == 0) {
+      target = atof(cmd + 5);
+      isAngle = true;
+    } else if (strncasecmp(cmd, "MOVE ", 5) == 0) {
+      target = atof(cmd + 5);
+      isAngle = true;
+    } else if (*cmd == '-' || *cmd == '+' || isdigit(*cmd)) {
+      target = atof(cmd);
+      isAngle = true;
     }
-    isAutoTracking = false; // Pause auto tracking to execute manual angle
-    printlnAll(F("\n[MANUAL] Executing commanded angle..."));
-    moveToAngle(target);
-    printlnAll(F("[MANUAL] Move complete. (Type 'AUTO' to resume sun tracking)\n"));
+
+    if (isAngle) {
+      if (target < MIN_ANGLE || target > MAX_ANGLE) {
+        printAll(F("\n[ERROR] Target "));
+        printAll(target, 1);
+        printlnAll(F(" deg is outside safe travel [-40.0 deg to +40.0 deg]!\n"));
+        return;
+      }
+      isAutoTracking = false;
+      printlnAll(F("\n[MANUAL] Executing commanded angle..."));
+      moveToAngle(target);
+      printlnAll(F("[MANUAL] Move complete. (Type 'AUTO' to resume sun tracking)\n"));
+    }
+  }
+}
+
+void processSerialInput() {
+  Stream* activeStream = nullptr;
+  if (Serial.available()) {
+    activeStream = &Serial;
+  }
+  #if HAS_SERIAL1
+  else if (Serial1.available()) {
+    activeStream = &Serial1;
+  }
+  #endif
+
+  if (activeStream == nullptr) return;
+
+  while (activeStream->available()) {
+    char c = activeStream->read();
+    if (c == '\r') continue;
+    if (c == '\n') {
+      cmdBuf[cmdPos] = '\0';
+      if (cmdPos > 0) {
+        handleCommand(cmdBuf);
+        cmdPos = 0;
+      }
+    } else if (cmdPos < sizeof(cmdBuf) - 1) {
+      cmdBuf[cmdPos++] = c;
+    }
   }
 }
 
