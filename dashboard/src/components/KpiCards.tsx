@@ -2,9 +2,11 @@ import React from 'react';
 import { 
   SunMedium, 
   Zap, 
-  Compass, 
+  Activity, 
   Gauge, 
-  BatteryCharging
+  Sparkles,
+  Thermometer,
+  Droplets
 } from 'lucide-react';
 import type { SolarTelemetry, MotorTelemetry, TrackingGeometry, AiDiagnostics } from '../types/dashboard';
 
@@ -21,111 +23,144 @@ export const KpiCards: React.FC<KpiCardsProps> = ({
   motor,
   tracking,
 }) => {
-  const powerInWatts = solar.powerKw * 1000;
-  const displayPower = powerInWatts >= 1000 ? solar.powerKw.toFixed(2) : powerInWatts.toFixed(1);
-  const displayPowerUnit = powerInWatts >= 1000 ? 'kW' : 'W';
+  // Real Power in Watts (prototype scale)
+  const powerW = solar.powerKw * 1000;
+  const displayPower = powerW >= 1000 ? (powerW / 1000).toFixed(2) + ' kW' : powerW.toFixed(1) + ' W';
 
-  const energyInWh = solar.energyTodayKwh * 1000;
-  const displayEnergy = energyInWh >= 1000 ? solar.energyTodayKwh.toFixed(2) : energyInWh.toFixed(1);
-  const displayEnergyUnit = energyInWh >= 1000 ? 'kWh' : 'Wh';
+  // Real Energy in Watt-hours
+  const energyWh = solar.energyTodayKwh * 1000;
+  const displayEnergy = energyWh >= 1000 ? (energyWh / 1000).toFixed(2) + ' kWh' : energyWh.toFixed(1) + ' Wh';
 
-  const isHomed = tracking.homed ?? true;
-  const batteryV = solar.battVoltageV && solar.battVoltageV > 0 ? solar.battVoltageV : 12.2;
-  const batteryPercent = Math.min(100, Math.max(0, Math.round(((batteryV - 10.5) / (14.2 - 10.5)) * 100)));
-  const hum = solar.humidityPct ?? 52.0;
+  // Ambient Climate from DHT11
+  const tempC = solar.temperatureC && solar.temperatureC > 0 ? solar.temperatureC : motor.temperature;
+  const humPct = solar.humidityPct && solar.humidityPct > 0 ? solar.humidityPct : 52.0;
 
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
-      {/* 1. Solar Output */}
-      <div className="bg-white rounded-xl p-4 border border-slate-200 shadow-xs">
-        <div className="flex items-center gap-2 text-xs font-semibold text-slate-500 mb-2">
-          <SunMedium className="w-4 h-4 text-amber-500" />
-          <span>Solar Power</span>
-        </div>
-        <div className="flex items-baseline gap-1">
-          <span className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 font-mono">
-            {displayPower}
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+      {/* 1. Solar Generation Power (WATTS) */}
+      <div className="bg-white rounded-xl p-5 border border-slate-200/90 shadow-xs hover:border-emerald-300 transition">
+        <div className="flex items-center justify-between text-xs font-semibold text-slate-500 mb-2">
+          <span className="flex items-center gap-1.5 uppercase tracking-wider text-[11px] font-bold text-emerald-700">
+            <SunMedium className="w-4 h-4 text-emerald-600" />
+            Solar Power
           </span>
-          <span className="text-xs font-semibold text-slate-400">
-            {displayPowerUnit}
-          </span>
+          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
         </div>
-        <div className="mt-2 text-xs text-slate-500 font-mono">
-          {solar.voltageV.toFixed(1)} V &nbsp;•&nbsp; {solar.currentA.toFixed(2)} A
+        <div className="flex items-baseline gap-1.5 mt-1">
+          <span className="text-3xl sm:text-4xl font-black font-mono tracking-tight text-slate-900">
+            {powerW.toFixed(1)}
+          </span>
+          <span className="text-base font-bold text-emerald-600 font-mono">W</span>
+        </div>
+        <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500 font-mono">
+          <span>Active Yield</span>
+          <span className="text-emerald-700 font-semibold">{displayPower} ({tracking.actualShaftAngle > 0 ? `+${tracking.actualShaftAngle.toFixed(1)}` : tracking.actualShaftAngle.toFixed(1)}° Tilt)</span>
         </div>
       </div>
 
-      {/* 2. Cumulative Energy Harvest */}
-      <div className="bg-white rounded-xl p-4 border border-slate-200 shadow-xs">
-        <div className="flex items-center gap-2 text-xs font-semibold text-slate-500 mb-2">
-          <Zap className="w-4 h-4 text-emerald-600" />
-          <span>Energy Yield</span>
-        </div>
-        <div className="flex items-baseline gap-1">
-          <span className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 font-mono">
-            {displayEnergy}
+      {/* 2. Solar Bus Voltage (VOLTS) */}
+      <div className="bg-white rounded-xl p-5 border border-slate-200/90 shadow-xs hover:border-blue-300 transition">
+        <div className="flex items-center justify-between text-xs font-semibold text-slate-500 mb-2">
+          <span className="flex items-center gap-1.5 uppercase tracking-wider text-[11px] font-bold text-blue-700">
+            <Zap className="w-4 h-4 text-blue-600" />
+            Solar Voltage
           </span>
-          <span className="text-xs font-semibold text-slate-400">
-            {displayEnergyUnit}
+          <span className="text-[10px] font-mono font-semibold bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded border border-blue-200">
+            PA4 ADC
           </span>
         </div>
-        <div className="mt-2 text-xs text-slate-500">
-          Today's Harvest (+28% Gain)
+        <div className="flex items-baseline gap-1.5 mt-1">
+          <span className="text-3xl sm:text-4xl font-black font-mono tracking-tight text-slate-900">
+            {solar.voltageV.toFixed(2)}
+          </span>
+          <span className="text-base font-bold text-blue-600 font-mono">V</span>
+        </div>
+        <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500 font-mono">
+          <span>DC Bus Level</span>
+          <span className="text-slate-700 font-semibold">{solar.voltageV > 1.0 ? 'Array Generating' : 'Standby / Low Lux'}</span>
         </div>
       </div>
 
-      {/* 3. Slat Tracking Angle */}
-      <div className="bg-white rounded-xl p-4 border border-slate-200 shadow-xs">
-        <div className="flex items-center gap-2 text-xs font-semibold text-slate-500 mb-2">
-          <Compass className="w-4 h-4 text-cyan-600" />
-          <span>Slat Tilt</span>
-        </div>
-        <div className="flex items-baseline gap-1">
-          <span className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 font-mono">
-            {tracking.actualShaftAngle > 0 ? `+${tracking.actualShaftAngle.toFixed(1)}` : tracking.actualShaftAngle.toFixed(1)}°
+      {/* 3. Solar PV Current (AMPERES) */}
+      <div className="bg-white rounded-xl p-5 border border-slate-200/90 shadow-xs hover:border-amber-300 transition">
+        <div className="flex items-center justify-between text-xs font-semibold text-slate-500 mb-2">
+          <span className="flex items-center gap-1.5 uppercase tracking-wider text-[11px] font-bold text-amber-700">
+            <Activity className="w-4 h-4 text-amber-600" />
+            Solar Current
           </span>
-          <span className="text-xs font-semibold text-slate-400">tilt</span>
+          <span className="text-[10px] font-mono font-semibold bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded border border-amber-200">
+            ACS712
+          </span>
         </div>
-        <div className="mt-2 text-xs text-slate-500">
-          {tracking.trackingMode} Mode &nbsp;•&nbsp; {isHomed ? '0.0° Datum' : 'Calibrating'}
+        <div className="flex items-baseline gap-1.5 mt-1">
+          <span className="text-3xl sm:text-4xl font-black font-mono tracking-tight text-slate-900">
+            {solar.currentA.toFixed(2)}
+          </span>
+          <span className="text-base font-bold text-amber-600 font-mono">A</span>
+        </div>
+        <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500 font-mono">
+          <span>Current Draw</span>
+          <span className="text-slate-700 font-semibold">{(solar.currentA * 1000).toFixed(0)} mA</span>
         </div>
       </div>
 
-      {/* 4. 12V Battery Pack */}
-      <div className="bg-white rounded-xl p-4 border border-slate-200 shadow-xs">
-        <div className="flex items-center gap-2 text-xs font-semibold text-slate-500 mb-2">
-          <BatteryCharging className="w-4 h-4 text-sky-600" />
-          <span>Battery Pack</span>
-        </div>
-        <div className="flex items-baseline gap-1">
-          <span className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 font-mono">
-            {batteryV.toFixed(1)}
+      {/* 4. Total Energy Harvested (WATT-HOURS) */}
+      <div className="bg-white rounded-xl p-5 border border-slate-200/90 shadow-xs hover:border-purple-300 transition">
+        <div className="flex items-center justify-between text-xs font-semibold text-slate-500 mb-2">
+          <span className="flex items-center gap-1.5 uppercase tracking-wider text-[11px] font-bold text-purple-700">
+            <Sparkles className="w-4 h-4 text-purple-600" />
+            Total Energy
           </span>
-          <span className="text-xs font-semibold text-slate-400">V</span>
+          <span className="text-[10px] font-mono font-semibold bg-purple-50 text-purple-700 px-1.5 py-0.5 rounded border border-purple-200">
+            Today
+          </span>
         </div>
-        <div className="mt-2 text-xs text-slate-500">
-          ~{batteryPercent}% &nbsp;•&nbsp; {batteryV < 11.0 ? 'Low Charge' : 'Float Nominal'}
+        <div className="flex items-baseline gap-1.5 mt-1">
+          <span className="text-3xl sm:text-4xl font-black font-mono tracking-tight text-slate-900">
+            {energyWh.toFixed(1)}
+          </span>
+          <span className="text-base font-bold text-purple-600 font-mono">Wh</span>
+        </div>
+        <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500 font-mono">
+          <span>Cumulative Yield</span>
+          <span className="text-purple-700 font-semibold">{displayEnergy}</span>
         </div>
       </div>
 
-      {/* 5. DHT11 Climate */}
-      <div className="bg-white rounded-xl p-4 border border-slate-200 shadow-xs col-span-2 sm:col-span-1">
-        <div className="flex items-center gap-2 text-xs font-semibold text-slate-500 mb-2">
-          <Gauge className="w-4 h-4 text-slate-500" />
-          <span>Climate</span>
-        </div>
-        <div className="flex items-baseline gap-1">
-          <span className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 font-mono">
-            {motor.temperature.toFixed(1)}
+      {/* 5. Climate: Temperature & Humidity */}
+      <div className="bg-white rounded-xl p-5 border border-slate-200/90 shadow-xs hover:border-slate-300 transition col-span-1 sm:col-span-2 lg:col-span-1">
+        <div className="flex items-center justify-between text-xs font-semibold text-slate-500 mb-2">
+          <span className="flex items-center gap-1.5 uppercase tracking-wider text-[11px] font-bold text-slate-700">
+            <Gauge className="w-4 h-4 text-slate-600" />
+            Ambient Climate
           </span>
-          <span className="text-xs font-semibold text-slate-400">°C</span>
+          <span className="text-[10px] font-mono font-semibold bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded border border-slate-200">
+            DHT11
+          </span>
         </div>
-        <div className="mt-2 text-xs text-slate-500">
-          {hum.toFixed(0)}% Humidity &nbsp;•&nbsp; DHT11
+        <div className="flex items-baseline justify-between mt-1">
+          <div className="flex items-baseline gap-1">
+            <span className="text-2xl sm:text-3xl font-black font-mono tracking-tight text-slate-900">
+              {tempC.toFixed(1)}
+            </span>
+            <span className="text-xs font-bold text-slate-500 font-mono">°C</span>
+          </div>
+          <div className="flex items-baseline gap-1 border-l border-slate-200 pl-3">
+            <span className="text-2xl sm:text-3xl font-black font-mono tracking-tight text-cyan-600">
+              {humPct.toFixed(0)}
+            </span>
+            <span className="text-xs font-bold text-slate-500 font-mono">% RH</span>
+          </div>
+        </div>
+        <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500 font-mono">
+          <span className="flex items-center gap-1">
+            <Thermometer className="w-3 h-3 text-rose-500" /> Temp
+          </span>
+          <span className="flex items-center gap-1 text-cyan-700">
+            <Droplets className="w-3 h-3 text-cyan-500" /> Humidity
+          </span>
         </div>
       </div>
     </div>
   );
 };
-
-

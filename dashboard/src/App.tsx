@@ -6,12 +6,10 @@ import { KpiCards } from './components/KpiCards';
 import { SolarPowerChart } from './components/SolarPowerChart';
 import { TrackingDial } from './components/TrackingDial';
 import { MultiShaftStatus } from './components/MultiShaftStatus';
-import { MechanicalHealth } from './components/MechanicalHealth';
-import { AiMaintenance } from './components/AiMaintenance';
+import { FaultDiagnostics } from './components/FaultDiagnostics';
 import { ControlPanel } from './components/ControlPanel';
 import { EnergyAnalytics } from './components/EnergyAnalytics';
 import { SystemArchitecture } from './components/SystemArchitecture';
-import { AlertsPanel } from './components/AlertsPanel';
 import { ConceptModal } from './components/ConceptModal';
 import { Footer } from './components/Footer';
 
@@ -37,7 +35,6 @@ export const App: React.FC = () => {
     isHardwareOnline,
     isMqttConnected,
     sendCommand,
-    setActiveScenario,
   } = useSolarSimulation();
 
   return (
@@ -57,7 +54,7 @@ export const App: React.FC = () => {
         {/* Tab 1: Live Overview */}
         {activeTab === 'overview' && (
           <div className="space-y-6">
-            {/* Core Sensor KPI Cards */}
+            {/* Core Sensor KPI Cards with Large Typography */}
             <KpiCards
               solar={solar}
               motor={motor}
@@ -66,7 +63,7 @@ export const App: React.FC = () => {
               faultInjected={ai.faultInjected}
             />
 
-            {/* Generation Profile & Slat Tracking Dial */}
+            {/* Generation Profile (0-200W Scale) & Slat Tracking Dial */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
               <div className="lg:col-span-8">
                 <SolarPowerChart
@@ -95,20 +92,14 @@ export const App: React.FC = () => {
           </div>
         )}
 
-        {/* Tab 3: System Health & Diagnostics */}
+        {/* Tab 3: System Health & Fault Diagnostics */}
         {activeTab === 'diagnostics' && (
           <div className="space-y-6">
-            <AiMaintenance
+            <FaultDiagnostics
               ai={ai}
-              onSelectScenario={setActiveScenario}
+              alerts={alerts}
+              isHardwareOnline={isHardwareOnline}
             />
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <MechanicalHealth
-                motor={motor}
-                faultInjected={ai.faultInjected}
-              />
-              <AlertsPanel alerts={alerts} />
-            </div>
             <SystemArchitecture />
           </div>
         )}
@@ -144,4 +135,3 @@ export const App: React.FC = () => {
 };
 
 export default App;
-
