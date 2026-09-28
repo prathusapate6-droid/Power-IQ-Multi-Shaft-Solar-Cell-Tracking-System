@@ -37,8 +37,9 @@ export const MultiShaftStatus: React.FC<MultiShaftStatusProps> = ({
                 </span>
               </h2>
               <p className="text-xs text-slate-500">
-                Single Stepper Motor $\rightarrow$ Common Central Worm Shaft $\rightarrow$ Synchronized PV Cell Rows
+                Single Stepper Motor &rarr; Common Central Worm Shaft &rarr; Synchronized PV Cell Rows
               </p>
+
             </div>
           </div>
         </div>

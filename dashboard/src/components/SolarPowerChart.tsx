@@ -9,7 +9,8 @@ import {
   ResponsiveContainer,
   ReferenceLine,
 } from 'recharts';
-import { Sun, TrendingUp, Info } from 'lucide-react';
+import { Sun } from 'lucide-react';
+
 import type { HourlyGenerationPoint } from '../types/dashboard';
 
 interface SolarPowerChartProps {
@@ -73,34 +74,31 @@ export const SolarPowerChart: React.FC<SolarPowerChartProps> = ({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
         <div>
           <div className="flex items-center gap-2">
-            <div className="p-1.5 rounded-lg bg-amber-50 text-amber-600 border border-amber-200/60">
+            <div className="p-1.5 rounded-lg bg-amber-50 text-amber-600 border border-amber-200">
               <Sun className="w-4 h-4" />
             </div>
             <h2 className="text-base font-bold text-slate-900">
-              Diurnal Solar Power Generation Profile
+              Solar Generation Profile
             </h2>
           </div>
           <p className="text-xs text-slate-500 mt-0.5">
-            Real-time power curve comparing <strong>Multi-Shaft Cell Tracking</strong> vs Conventional Fixed Solar Array
+            Real-time power curve vs fixed baseline
           </p>
         </div>
 
-        {/* Legend and Metrics badge */}
-        <div className="flex flex-wrap items-center gap-4 text-xs">
+        {/* Legend */}
+        <div className="flex items-center gap-4 text-xs font-medium text-slate-600">
           <div className="flex items-center gap-1.5">
             <span className="w-3 h-3 rounded-xs bg-emerald-500"></span>
-            <span className="font-medium text-slate-700">Multi-Shaft Tracking (kW)</span>
+            <span>Tracking Output</span>
           </div>
           <div className="flex items-center gap-1.5">
             <span className="w-3 h-0.5 bg-slate-400"></span>
-            <span className="font-medium text-slate-500">Fixed PV Baseline (kW)</span>
-          </div>
-          <div className="bg-emerald-50 text-emerald-800 px-2 py-1 rounded-md border border-emerald-200 flex items-center gap-1 font-semibold text-[11px]">
-            <TrendingUp className="w-3 h-3 text-emerald-600" />
-            <span>Avg Harvest Gain: +28.4%</span>
+            <span>Fixed Baseline</span>
           </div>
         </div>
       </div>
+
 
       {/* Recharts Area Chart */}
       <div className="h-72 w-full">
@@ -180,15 +178,7 @@ export const SolarPowerChart: React.FC<SolarPowerChartProps> = ({
           </AreaChart>
         </ResponsiveContainer>
       </div>
-
-      {/* Chart Footer Technical Note */}
-      <div className="mt-3 pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between text-[11px] text-slate-500 gap-2">
-        <span className="flex items-center gap-1.5">
-          <Info className="w-3.5 h-3.5 text-slate-400" />
-          <span>Notice the expanded morning (08:00–11:00) and afternoon (14:00–17:00) "shoulder hours" where cell rotation eliminates oblique cosine reflection.</span>
-        </span>
-        <span className="font-mono text-slate-400">Peak System Capacity: 3.2 kWp</span>
-      </div>
     </div>
   );
 };
+

@@ -35,14 +35,15 @@ export const TrackingDial: React.FC<TrackingDialProps> = ({ tracking }) => {
               <Compass className="w-4 h-4" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-slate-900">Tracking Status & Geometry</h2>
-              <p className="text-xs text-slate-500">Celestial solar vector vs shaft normal tilt</p>
+              <h2 className="text-base font-bold text-slate-900">Slat Tilt & Sun Position</h2>
+              <p className="text-xs text-slate-500">Angle kinematics vs solar vector</p>
             </div>
           </div>
-          <span className="text-[11px] font-mono bg-cyan-50 text-cyan-800 border border-cyan-200 px-2 py-0.5 rounded-full font-semibold">
-            {tracking.trackingMode} (Intermittent)
+          <span className="text-[11px] font-mono bg-cyan-50 text-cyan-800 border border-cyan-200 px-2 py-0.5 rounded-md font-semibold">
+            {tracking.trackingMode}
           </span>
         </div>
+
 
         {/* Visual Celestial Semi-Circular Gauge */}
         <div className="relative flex items-center justify-center my-1">

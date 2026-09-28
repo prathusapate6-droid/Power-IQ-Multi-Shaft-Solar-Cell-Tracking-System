@@ -40,18 +40,16 @@ export const AiMaintenance: React.FC<AiMaintenanceProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-base font-bold text-slate-900">
-                  AI-Based Predictive Maintenance & Fault Detection
+                  Predictive Maintenance & Fault Diagnostics
                 </h2>
-                <span className="text-[10px] uppercase font-bold tracking-wider bg-purple-100 text-purple-800 px-2 py-0.5 rounded border border-purple-300">
-                  Dual-MCU Diagnostic Net
-                </span>
               </div>
               <p className="text-xs text-slate-500">
-                Continuous physical telemetry analysis: Short-circuit, Overvoltage, Dust Soiling, Thermal Runaway & Battery
+                Live monitoring: Short-circuit protection, solar bus voltage, panel soiling, and driver thermal status
               </p>
             </div>
           </div>
         </div>
+
 
         {/* AI Health Score Badge */}
         <div className="flex items-center gap-2">
@@ -184,25 +182,25 @@ export const AiMaintenance: React.FC<AiMaintenanceProps> = ({
         </div>
       </div>
 
-      {/* AI Maintenance Insight & Prescriptive Action Box */}
+      {/* Diagnostic Advisory & Corrective Action */}
       <div className={`rounded-xl p-4 border transition-all ${
         ai.faultInjected 
           ? 'bg-rose-50/80 border-rose-200 text-rose-900' 
           : isDustAlert
           ? 'bg-amber-50/80 border-amber-200 text-amber-900'
-          : 'bg-gradient-to-r from-purple-50/70 to-slate-50 border-purple-200/70 text-slate-800'
+          : 'bg-slate-50 border-slate-200 text-slate-800'
       }`}>
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-2">
             <Sparkles className={`w-4 h-4 ${
-              ai.faultInjected ? 'text-rose-600' : isDustAlert ? 'text-amber-600' : 'text-purple-600'
+              ai.faultInjected ? 'text-rose-600' : isDustAlert ? 'text-amber-600' : 'text-slate-600'
             }`} />
             <span className="text-xs font-bold uppercase tracking-wider">
-              AI Maintenance Recommendation
+              Diagnostic Advisory
             </span>
           </div>
-          <span className="text-[10px] font-mono text-slate-500">
-            Engine: Neural Telemetry Diagnostic Filter
+          <span className="text-[10px] font-mono text-slate-400">
+            Real-Time Edge Evaluation
           </span>
         </div>
 
@@ -210,45 +208,46 @@ export const AiMaintenance: React.FC<AiMaintenanceProps> = ({
           “{ai.aiInsightText}”
         </p>
 
-        {/* Hackathon Demonstration Scenario Buttons */}
-        <div className="mt-3 pt-3 border-t border-purple-200/40 flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-600">
-            <span>Demonstrate Fault Scenario:</span>
+        {/* Diagnostic Test Strip */}
+        <div className="mt-3 pt-3 border-t border-slate-200/60 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 text-xs text-slate-500">
+            <span>Test Diagnostic Response:</span>
             <button
               onClick={() => onSelectScenario?.('DUST_SOILING')}
-              className="px-2 py-0.5 rounded bg-amber-100 hover:bg-amber-200 text-amber-800 font-mono text-[10px] transition"
+              className="px-2 py-0.5 rounded bg-slate-200/80 hover:bg-slate-300 text-slate-800 text-[11px] font-medium transition"
             >
-              🧹 Dust Soiling
+              Dust Alert
             </button>
             <button
               onClick={() => onSelectScenario?.('SHORT_CIRCUIT')}
-              className="px-2 py-0.5 rounded bg-rose-100 hover:bg-rose-200 text-rose-800 font-mono text-[10px] transition"
+              className="px-2 py-0.5 rounded bg-slate-200/80 hover:bg-slate-300 text-slate-800 text-[11px] font-medium transition"
             >
-              ⚡ Short Circuit
+              Short Circuit
             </button>
             <button
               onClick={() => onSelectScenario?.('THERMAL_OVERHEAT')}
-              className="px-2 py-0.5 rounded bg-orange-100 hover:bg-orange-200 text-orange-800 font-mono text-[10px] transition"
+              className="px-2 py-0.5 rounded bg-slate-200/80 hover:bg-slate-300 text-slate-800 text-[11px] font-medium transition"
             >
-              🌡️ High Temp
+              Overheat
             </button>
             <button
               onClick={() => onSelectScenario?.('LOW_BATTERY')}
-              className="px-2 py-0.5 rounded bg-sky-100 hover:bg-sky-200 text-sky-800 font-mono text-[10px] transition"
+              className="px-2 py-0.5 rounded bg-slate-200/80 hover:bg-slate-300 text-slate-800 text-[11px] font-medium transition"
             >
-              🔋 Low Bat
+              Low Battery
             </button>
           </div>
 
           <button
             onClick={() => onSelectScenario?.('NONE')}
-            className="text-purple-700 hover:text-purple-900 font-semibold underline text-[11px] flex items-center gap-1"
+            className="text-slate-700 hover:text-slate-900 font-semibold text-xs flex items-center gap-1 transition"
           >
             <RefreshCw className="w-3 h-3" />
-            <span>Live Hardware Telemetry</span>
+            <span>Reset to Live Sensor Feed</span>
           </button>
         </div>
       </div>
+
     </div>
   );
 };
