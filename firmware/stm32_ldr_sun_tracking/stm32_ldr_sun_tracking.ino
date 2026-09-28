@@ -36,7 +36,6 @@
 #include <Arduino.h>
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
-#include <DHT.h>
 
 // =============================================================================
 // 1. USER SPEED & TIMING VARIABLES (TUNE YOUR SPEEDS HERE!)
@@ -63,9 +62,6 @@ int TRACKING_SPEED_US    = 2000;  // Speed during Sun Tracking motion (default: 
 
 // ---------------- DHT11 TEMPERATURE & HUMIDITY ----------------
 #define PIN_DHT11       PB5   // DHT11 Data Pin
-#define DHTTYPE         DHT11 // Sensor Model: DHT 11
-
-DHT dht(PIN_DHT11, DHTTYPE);
 
 float currentTemp     = 0.0f; // Temperature in deg C
 float currentHumidity = 0.0f; // Relative Humidity in %
@@ -152,6 +148,66 @@ void printlnAll(T msg, P p) {
 #endif
 }
 
+// ---------------- LIGHTWEIGHT FAST FLOAT PARSER (SAVES ~5KB FLASH) ----------------
+float parseCustomFloat(const char* p) {
+  while (*p == ' ') p++;
+  float sign = 1.0f;
+  if (*p == '-') { sign = -1.0f; p++; }
+  else if (*p == '+') { p++; }
+  float val = 0.0f;
+  while (*p >= '0' && *p <= '9') {
+    val = val * 10.0f + (*p - '0');
+    p++;
+  }
+  if (*p == '.') {
+    p++;
+    float factor = 0.1f;
+    while (*p >= '0' && *p <= '9') {
+      val += (*p - '0') * factor;
+      factor *= 0.1f;
+      p++;
+    }
+  }
+  return sign * val;
+}
+
+// ---------------- DIRECT NATIVE DHT11 READER (ZERO BLOAT, SAVES ~6KB FLASH) ----------------
+bool readDHT11(uint8_t pin, float &temp, float &humidity) {
+  uint8_t data[5] = {0, 0, 0, 0, 0};
+  pinMode(pin, OUTPUT);
+  digitalWrite(pin, LOW);
+  delay(20);
+  digitalWrite(pin, HIGH);
+  delayMicroseconds(30);
+  pinMode(pin, INPUT_PULLUP);
+
+  unsigned long timeout = micros();
+  while (digitalRead(pin) == HIGH) { if (micros() - timeout > 100) return false; }
+  timeout = micros();
+  while (digitalRead(pin) == LOW) { if (micros() - timeout > 100) return false; }
+  timeout = micros();
+  while (digitalRead(pin) == HIGH) { if (micros() - timeout > 100) return false; }
+
+  for (int i = 0; i < 40; i++) {
+    timeout = micros();
+    while (digitalRead(pin) == LOW) { if (micros() - timeout > 100) return false; }
+    unsigned long t = micros();
+    while (digitalRead(pin) == HIGH) { if (micros() - timeout > 150) return false; }
+    if ((micros() - t) > 40) {
+      data[i / 8] |= (1 << (7 - (i % 8)));
+    }
+  }
+
+  if (data[4] == ((data[0] + data[1] + data[2] + data[3]) & 0xFF)) {
+    if (data[0] != 0 || data[2] != 0) {
+      humidity = (float)data[0];
+      temp = (float)data[2];
+      return true;
+    }
+  }
+  return false;
+}
+
 // ---------------- FORWARD DECLARATIONS ----------------
 void motorOn();
 void motorOff();
@@ -187,10 +243,7 @@ void setup() {
   pinMode(PIN_HALL_HOME, INPUT_PULLUP);
   pinMode(PIN_SOLAR_VOLT, INPUT);
 
-  // 3. Initialize DHT11 Sensor
-  dht.begin();
-
-  // 4. Initialize I2C Bus & Detect Optional LCD (0x27)
+  // 3. Initialize I2C Bus & Detect Optional LCD (0x27)
   Wire.begin();
   Wire.beginTransmission(0x27);
   if (Wire.endTransmission() == 0) {
@@ -203,7 +256,7 @@ void setup() {
     lcd.print("Calibrating 0.0...");
   }
 
-  // 5. Serial Communication @ 9600 Baud
+  // 4. Serial Communication @ 9600 Baud
   Serial.begin(9600);
 #if HAS_SERIAL1
   Serial1.begin(9600);
@@ -212,20 +265,20 @@ void setup() {
   delay(1000);
 
   printlnAll();
-  printlnAll(F("============================================================================"));
-  printlnAll(F(" POWER IQ — STM32 SUN TRACKER + VOLTAGE (33k/6.8k) + DHT11 + I2C LCD        "));
-  printlnAll(F(" Platform     : STM32F103C8T6 32-bit ARM Cortex-M3 @ 72 MHz (100% Pure)     "));
-  printlnAll(F(" Calibration  : 10.556 steps/deg | Safety Limits: -40.0 to +40.0 deg        "));
+  printlnAll(F("========================================================"));
+  printlnAll(F(" POWER IQ — STM32 SUN TRACKER + VOLT + DHT11 + LCD     "));
+  printlnAll(F(" Platform     : STM32F103C8T6 ARM Cortex-M3 (Pure STM32)"));
+  printlnAll(F(" Calibration  : 10.556 steps/deg | Safety: -40 to +40 deg"));
   printAll(F(" Tracking Spd : ")); printAll(TRACKING_SPEED_US);
   printAll(F(" us | ZERO Homing Spd: ")); printAll(ZERO_HOMING_SPEED_US); printlnAll(F(" us"));
-  printlnAll(F(" Sensors      : 4x LDRs, Hall (PB11), DHT11 (PB5), Voltage PA6 (33k/6.8k)   "));
-  printlnAll(F("============================================================================"));
+  printlnAll(F(" Sensors      : 4x LDRs, Hall, DHT11 (PB5), Volt (PA6)  "));
+  printlnAll(F("========================================================"));
 
-  // 6. Initial Sensor Readings
+  // 5. Initial Sensor Readings
   updateDhtSensors();
   updateVoltageSensor();
 
-  // 7. GUARANTEED ZERO POSITIONING AT STARTUP
+  // 6. GUARANTEED ZERO POSITIONING AT STARTUP
   findZeroHomeDatum();
 
   digitalWrite(PIN_STATUS_LED, HIGH); // LED OFF (Ready)
@@ -309,7 +362,7 @@ void findZeroHomeDatum() {
 
   motorOff(); // 100% silent (0W)
   digitalWrite(PIN_STATUS_LED, HIGH);
-  printlnAll(F("----------------------------------------------------------------------------"));
+  printlnAll(F("--------------------------------------------------------"));
 }
 
 // =============================================================================
@@ -338,9 +391,8 @@ void updateDhtSensors() {
   unsigned long now = millis();
   if (now - lastDhtReadTime >= 2500) {
     lastDhtReadTime = now;
-    float t = dht.readTemperature();
-    float h = dht.readHumidity();
-    if (!isnan(t) && !isnan(h)) {
+    float t = 0.0f, h = 0.0f;
+    if (readDHT11(PIN_DHT11, t, h)) {
       currentTemp = t;
       currentHumidity = h;
     }
@@ -456,7 +508,7 @@ void executeSunTracking() {
     unsigned long darkDuration = millis() - darknessStartMs;
     if (darkDuration >= NIGHT_PARK_DELAY_MS) {
       // 8 full seconds of darkness confirmed -> Return to 0.0 Home
-      if (abs(currentAngle) > 0.5f) {
+      if (fabs(currentAngle) > 0.5f) {
         trackingState = "NIGHT CONFIRMED (8s) -> Parking at 0.0 deg";
         if (isAutoTracking) moveToAngle(0.0f, TRACKING_SPEED_US);
       } else {
@@ -521,7 +573,7 @@ void executeSunTracking() {
 // TELEMETRY OUTPUT TO SERIAL MONITOR
 // =============================================================================
 void printTelemetry(int topVal, int botVal, int diff, const char* stateStr) {
-  printlnAll(F("----------------------------------------------------------------------------"));
+  printlnAll(F("--------------------------------------------------------"));
   printAll(F(" [POWER IQ] Angle: "));
   if (currentAngle >= 0) printAll(F("+"));
   printAll(currentAngle, 1);
@@ -548,7 +600,7 @@ void printTelemetry(int topVal, int botVal, int diff, const char* stateStr) {
   printlnAll(F("0W Silent Holding"));
 
   printAll(F(" Status      : ")); printlnAll(stateStr);
-  printlnAll(F("----------------------------------------------------------------------------"));
+  printlnAll(F("--------------------------------------------------------"));
 }
 
 // =============================================================================
@@ -664,7 +716,7 @@ void handleCommand(char* cmd) {
     }
   }
   else if (strncasecmp(cmd, "VREF ", 5) == 0) {
-    float val = atof(cmd + 5);
+    float val = parseCustomFloat(cmd + 5);
     if (val > 2.0f && val < 5.5f) {
       refVoltage = val;
       printAll(F("\n[CMD] Voltage Reference calibrated to: "));
@@ -704,13 +756,13 @@ void handleCommand(char* cmd) {
     bool isAngle = false;
 
     if (strncasecmp(cmd, "GOTO ", 5) == 0) {
-      target = atof(cmd + 5);
+      target = parseCustomFloat(cmd + 5);
       isAngle = true;
     } else if (strncasecmp(cmd, "MOVE ", 5) == 0) {
-      target = atof(cmd + 5);
+      target = parseCustomFloat(cmd + 5);
       isAngle = true;
     } else if (*cmd == '-' || *cmd == '+' || isdigit(*cmd)) {
-      target = atof(cmd);
+      target = parseCustomFloat(cmd);
       isAngle = true;
     }
 
