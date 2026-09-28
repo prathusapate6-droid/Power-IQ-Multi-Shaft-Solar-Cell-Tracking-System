@@ -216,6 +216,120 @@ export function useSolarSimulation() {
     },
   ];
 
+  // User-selectable test scenario for hackathon jury / viva demonstrations
+
+  const [activeScenario, setActiveScenario] = useState<
+    'NONE' | 'DUST_SOILING' | 'SHORT_CIRCUIT' | 'THERMAL_OVERHEAT' | 'LOW_BATTERY'
+  >('NONE');
+
+  const humidityPct = telemetry ? Number(telemetry.humidity.toFixed(1)) : 52.0;
+
+  // Persist daily telemetry for Date-wise historical records (Today, Yesterday, etc.)
+  useEffect(() => {
+    if (!telemetry) return;
+    try {
+      const todayStr = new Date().toISOString().split('T')[0];
+      const storageKey = `power_iq_history_${todayStr}`;
+      const existing = localStorage.getItem(storageKey);
+      const parsed = existing ? JSON.parse(existing) : {
+        date: todayStr,
+        peakPowerW: 0,
+        totalEnergyWh: 0,
+        avgVoltageV: 0,
+        avgCurrentA: 0,
+        maxTempC: 0,
+        count: 0
+      };
+      parsed.peakPowerW = Math.max(parsed.peakPowerW, telemetry.solar_power);
+      parsed.totalEnergyWh = Math.max(parsed.totalEnergyWh, telemetry.energy_wh);
+      parsed.maxTempC = Math.max(parsed.maxTempC, telemetry.temperature);
+      parsed.count = (parsed.count || 0) + 1;
+      parsed.avgVoltageV = Number(((parsed.avgVoltageV * (parsed.count - 1) + telemetry.solar_voltage) / parsed.count).toFixed(2));
+      parsed.avgCurrentA = Number(((parsed.avgCurrentA * (parsed.count - 1) + telemetry.solar_current) / parsed.count).toFixed(2));
+      localStorage.setItem(storageKey, JSON.stringify(parsed));
+    } catch {
+      // Ignore localStorage exceptions in sandbox
+    }
+  }, [telemetry]);
+
+  // Predictive Maintenance Vectors Evaluation
+  // 1. Electrical & Short Circuit Evaluation
+  let electricalHealth: 'NORMAL' | 'SHORT_CIRCUIT' | 'OVERVOLTAGE' | 'PV_DISCONNECTED' = 'NORMAL';
+  if (activeScenario === 'SHORT_CIRCUIT' || solarCurrentA > 5.0) {
+    electricalHealth = 'SHORT_CIRCUIT';
+  } else if (solarVoltageV > 22.0) {
+    electricalHealth = 'OVERVOLTAGE';
+  } else if (solarVoltageV < 1.0 && hourDecimal >= 9 && hourDecimal <= 16 && isHardwareOnline) {
+    electricalHealth = 'PV_DISCONNECTED';
+  }
+
+  // 2. Thermal Management
+  let thermalHealth: 'NOMINAL' | 'ELEVATED' | 'OVERHEAT' = 'NOMINAL';
+  if (activeScenario === 'THERMAL_OVERHEAT' || temperatureC > 48.0) {
+    thermalHealth = 'OVERHEAT';
+  } else if (temperatureC > 38.0) {
+    thermalHealth = 'ELEVATED';
+  }
+
+  // 3. Dust & Soiling (Cleaning Required)
+  let dustSoilingRisk: 'CLEAN' | 'MODERATE_DUST' | 'CLEANING_REQUIRED' = 'CLEAN';
+  let cleaningRecommended = false;
+  if (activeScenario === 'DUST_SOILING' || (hourDecimal >= 10 && hourDecimal <= 15 && solarVoltageV > 6.0 && solarPowerW < 0.6)) {
+    dustSoilingRisk = 'CLEANING_REQUIRED';
+    cleaningRecommended = true;
+  } else if (hourDecimal >= 9 && hourDecimal <= 17 && solarVoltageV > 5.0 && solarPowerW < 1.5) {
+    dustSoilingRisk = 'MODERATE_DUST';
+  }
+
+  // 4. Battery Bank Health
+  let batteryHealth: 'OPTIMAL' | 'LOW_BATTERY' | 'OVERCHARGED' | 'DISCONNECTED' = 'OPTIMAL';
+  if (activeScenario === 'LOW_BATTERY' || (battVoltageV > 0 && battVoltageV < 10.8)) {
+    batteryHealth = 'LOW_BATTERY';
+  } else if (battVoltageV > 14.6) {
+    batteryHealth = 'OVERCHARGED';
+  } else if (battVoltageV <= 0.5) {
+    batteryHealth = 'DISCONNECTED';
+  }
+
+  // 5. Hall Sensor 0.0° Datum
+  const hallDatumStatus: 'ALIGNED' | 'CALIBRATION_DUE' = isHomed ? 'ALIGNED' : 'CALIBRATION_DUE';
+
+  // Overall AI Health Score calculation
+  let healthScore = 98;
+  if (electricalHealth === 'SHORT_CIRCUIT') healthScore -= 50;
+  else if (electricalHealth === 'OVERVOLTAGE') healthScore -= 25;
+  if (thermalHealth === 'OVERHEAT') healthScore -= 35;
+  else if (thermalHealth === 'ELEVATED') healthScore -= 10;
+  if (dustSoilingRisk === 'CLEANING_REQUIRED') healthScore -= 22;
+  else if (dustSoilingRisk === 'MODERATE_DUST') healthScore -= 8;
+  if (batteryHealth === 'LOW_BATTERY') healthScore -= 20;
+  if (hallDatumStatus === 'CALIBRATION_DUE') healthScore -= 15;
+  healthScore = Math.max(10, Math.min(100, healthScore));
+
+  const maintenancePrediction: 'NORMAL' | 'INSPECTION_RECOMMENDED' | 'CRITICAL' =
+    healthScore < 60 ? 'CRITICAL' : healthScore < 85 ? 'INSPECTION_RECOMMENDED' : 'NORMAL';
+
+  // Dynamic AI Insight Text
+  let aiInsightText =
+    'Dual-MCU IoT telemetry active. Mechanical worm drive self-locking is maintaining nominal holding torque at 0W idle power. Optical alignment on 4 LDR channels is within target deadband.';
+
+  if (activeScenario === 'SHORT_CIRCUIT' || electricalHealth === 'SHORT_CIRCUIT') {
+    aiInsightText =
+      '🚨 CRITICAL ELECTRICAL FAULT: Abnormal current surge (>5.0A) detected without voltage increase. Potential solar bus short-circuit or damaged bypass diode on PV string. Immediate disconnection advised!';
+  } else if (activeScenario === 'DUST_SOILING' || dustSoilingRisk === 'CLEANING_REQUIRED') {
+    aiInsightText =
+      '🧹 PREDICTIVE MAINTENANCE: High dust and soiling layer detected on panel surfaces. Solar irradiance vs PV output regression indicates ~30% power attenuation. Schedule cleaning within 48 hours to recover lost yield.';
+  } else if (activeScenario === 'THERMAL_OVERHEAT' || thermalHealth === 'OVERHEAT') {
+    aiInsightText =
+      '⚠️ THERMAL WARNING: Motor/ambient temperature exceeds 48°C safe threshold. Single-motor holding coils de-energized. Inspect A4988 driver heatsink ventilation.';
+  } else if (activeScenario === 'LOW_BATTERY' || batteryHealth === 'LOW_BATTERY') {
+    aiInsightText =
+      '🔋 BATTERY UNDERVOLTAGE: 12V auxiliary battery bank below 10.8V. Deep discharge prevention triggered. Auxiliary charging required.';
+  } else if (hallDatumStatus === 'CALIBRATION_DUE') {
+    aiInsightText =
+      '🎯 DATUM RECALIBRATION: Hall effect 0.0° sensor not synchronized. Dispatch "HOME" calibration command to zero the kinematics table.';
+  }
+
   // Motor telemetry object directly from physical system
   const motor: MotorTelemetry = {
     status: isEmergencyStopped
@@ -247,6 +361,9 @@ export function useSolarSimulation() {
     instantGainPercent: 28.4,
     irradianceWm2: Math.round(solarVoltageV * 48),
     battVoltageV,
+    temperatureC,
+    humidityPct,
+    homed: isHomed,
     isHardwareOnline: true,
   };
 
@@ -260,22 +377,30 @@ export function useSolarSimulation() {
     intermittentCountdownSec: 25,
     isAdjusting: isMotorMoving,
     trackingMode,
+    homed: isHomed,
   };
 
   // AI Diagnostics state based on real metrics
   const ai: AiDiagnostics = {
-    healthScore: 98,
+    healthScore,
     gearBacklashRisk: 'LOW',
-    motorHealth: 'GOOD',
+    motorHealth: thermalHealth === 'OVERHEAT' ? 'WARNING' : 'GOOD',
     shaftSynchronization: 'GOOD',
-    overloadRisk: 'LOW',
+    overloadRisk: electricalHealth === 'SHORT_CIRCUIT' ? 'HIGH' : 'LOW',
     flexibleCableFatigue: 'LOW',
     bearingFriction: 'NOMINAL',
-    maintenancePrediction: 'NORMAL',
-    aiInsightText:
-      'Dual-MCU IoT telemetry active. Mechanical worm drive self-locking is maintaining nominal holding torque. Optical alignment on 4 LDR channels is within target deadband.',
-    faultInjected: false,
+    maintenancePrediction,
+    dustSoilingRisk,
+    thermalHealth,
+    electricalHealth,
+    batteryHealth,
+    hallDatumStatus,
+    cleaningRecommended,
+    aiInsightText,
+    activeScenario,
+    faultInjected: activeScenario !== 'NONE',
   };
+
 
   // Bidirectional physical hardware control actions
   const handleAutoToggle = useCallback(() => {
@@ -374,5 +499,8 @@ export function useSolarSimulation() {
     isMqttConnected,
     telemetry,
     sendCommand,
+    activeScenario,
+    setActiveScenario,
   };
 }
+

@@ -38,6 +38,9 @@ export interface SolarTelemetry {
   instantGainPercent: number;
   irradianceWm2: number;
   battVoltageV?: number;
+  temperatureC?: number;
+  humidityPct?: number;
+  homed?: boolean;
   isHardwareOnline?: boolean;
 }
 
@@ -50,6 +53,7 @@ export interface TrackingGeometry {
   intermittentCountdownSec: number;
   isAdjusting: boolean;
   trackingMode: TrackingMode;
+  homed?: boolean;
 }
 
 export interface HourlyGenerationPoint {
@@ -70,7 +74,14 @@ export interface AiDiagnostics {
   flexibleCableFatigue: 'LOW' | 'NORMAL' | 'EVALUATE';
   bearingFriction: 'NOMINAL' | 'ELEVATED' | 'HIGH';
   maintenancePrediction: 'NORMAL' | 'INSPECTION_RECOMMENDED' | 'CRITICAL';
+  dustSoilingRisk: 'CLEAN' | 'MODERATE_DUST' | 'CLEANING_REQUIRED';
+  thermalHealth: 'NOMINAL' | 'ELEVATED' | 'OVERHEAT';
+  electricalHealth: 'NORMAL' | 'SHORT_CIRCUIT' | 'OVERVOLTAGE' | 'PV_DISCONNECTED';
+  batteryHealth: 'OPTIMAL' | 'LOW_BATTERY' | 'OVERCHARGED' | 'DISCONNECTED';
+  hallDatumStatus: 'ALIGNED' | 'CALIBRATION_DUE';
+  cleaningRecommended: boolean;
   aiInsightText: string;
+  activeScenario?: 'NONE' | 'DUST_SOILING' | 'SHORT_CIRCUIT' | 'THERMAL_OVERHEAT' | 'LOW_BATTERY';
   faultInjected: boolean;
 }
 
@@ -80,5 +91,6 @@ export interface SystemAlert {
   type: 'info' | 'success' | 'warning' | 'error';
   title: string;
   message: string;
-  component: 'WORM_DRIVE' | 'STEPPER_MOTOR' | 'STM32_MCU' | 'PV_SHAFTS' | 'AI_ENGINE';
+  component: 'WORM_DRIVE' | 'STEPPER_MOTOR' | 'STM32_MCU' | 'PV_SHAFTS' | 'AI_ENGINE' | 'BATTERY' | 'SOLAR_BUS';
 }
+

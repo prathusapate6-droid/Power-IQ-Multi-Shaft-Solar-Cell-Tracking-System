@@ -35,6 +35,7 @@ export const App: React.FC = () => {
     isHardwareOnline,
     isMqttConnected,
     sendCommand,
+    setActiveScenario,
   } = useSolarSimulation();
 
   return (
@@ -49,12 +50,13 @@ export const App: React.FC = () => {
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        {/* 1. System Overview KPI Cards */}
+        {/* 1. System Overview KPI Cards (All Physical Sensors: Solar, Batt, Temp, Hall 0°, AI) */}
         <KpiCards
           solar={solar}
           motor={motor}
           tracking={tracking}
-          faultInjected={false}
+          ai={ai}
+          faultInjected={ai.faultInjected}
         />
 
         {/* 2. Generation Profile & Tracking Geometry Dial */}
@@ -81,11 +83,11 @@ export const App: React.FC = () => {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
           <MechanicalHealth
             motor={motor}
-            faultInjected={false}
+            faultInjected={ai.faultInjected}
           />
           <AiMaintenance
             ai={ai}
-            onToggleFault={() => {}}
+            onSelectScenario={setActiveScenario}
           />
         </div>
 
@@ -102,8 +104,9 @@ export const App: React.FC = () => {
           onZeroCurrent={() => sendCommand('ZERO_CURR')}
         />
 
-        {/* 6. Energy Harvesting Analytics & Net Gain Comparison */}
-        <EnergyAnalytics />
+        {/* 6. Energy Harvesting Analytics & Date-Wise History */}
+        <EnergyAnalytics solar={solar} />
+
 
         {/* 7. System Architecture Mini-View (Actuation & IoT Flows) */}
         <SystemArchitecture />
