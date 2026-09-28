@@ -28,14 +28,16 @@ export function useHardwareMqtt() {
   const lastPacketRef = useRef<number>(0);
 
   useEffect(() => {
-    // HiveMQ Public Cloud MQTT Broker (Secure WebSocket on port 8884)
-    const brokerUrl = 'wss://broker.hivemq.com:8884/mqtt';
+    // HiveMQ Dedicated Cloud MQTT Broker (Secure WebSocket on port 8884 with TLS)
+    const brokerUrl = 'wss://e5c6d611df63436992755767b6967071.s1.eu.hivemq.cloud:8884/mqtt';
     const clientId = `power_iq_web_${Math.random().toString(16).substring(2, 8)}`;
 
     const client = mqtt.connect(brokerUrl, {
       clientId,
+      username: 'smartwater',
+      password: 'SmartWater2026!',
       clean: true,
-      connectTimeout: 8000,
+      connectTimeout: 10000,
       reconnectPeriod: 4000,
     });
 

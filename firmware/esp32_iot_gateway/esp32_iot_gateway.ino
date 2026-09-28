@@ -24,6 +24,7 @@
 
 #include <Arduino.h>
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
 #include <WebServer.h>
 #include <HTTPClient.h>
 #include <Wire.h>
@@ -41,13 +42,15 @@ const char* WIFI_PASSWORD = "SolarTracking2026";  // Your WiFi Password
 const char* AP_SSID       = "POWER_IQ_GATEWAY";   // Hotspot Name (Default IP: 192.168.4.1)
 const char* AP_PASSWORD   = "poweriq123";
 
-// HiveMQ Public Cloud MQTT Broker Configuration (Netlify Dashboard Bridge)
-const char* MQTT_BROKER           = "broker.hivemq.com";
-const int   MQTT_PORT             = 1883;
+// HiveMQ Dedicated Cloud MQTT Broker Configuration (TLS Encrypted)
+#define MQTT_BROKER   "e5c6d611df63436992755767b6967071.s1.eu.hivemq.cloud"
+#define MQTT_PORT     8883
+#define MQTT_USERNAME "smartwater"
+#define MQTT_PASSWORD "SmartWater2026!"
 const char* MQTT_TOPIC_TELEMETRY  = "power_iq_sih2026/telemetry";
 const char* MQTT_TOPIC_COMMANDS   = "power_iq_sih2026/commands";
 
-WiFiClient espClient;
+WiFiClientSecure espClient;
 PubSubClient mqttClient(espClient);
 
 unsigned long lastMqttReconnectMs = 0;
@@ -211,11 +214,12 @@ void setup() {
   server.begin();
   Serial.println("[HTTP] Web Server started on port 80.");
 
-  // 6. Setup MQTT HiveMQ Cloud Broker (Direct Netlify Web Dashboard Bridge)
+  // 6. Setup MQTT HiveMQ Dedicated Cloud Broker (TLS Port 8883)
+  espClient.setInsecure(); // Skip TLS certificate validation for lightweight embedded TLS
   mqttClient.setServer(MQTT_BROKER, MQTT_PORT);
   mqttClient.setCallback(mqttCallback);
   mqttClient.setBufferSize(512);
-  Serial.println("[MQTT] HiveMQ Cloud client initialized (broker.hivemq.com:1883).");
+  Serial.println("[MQTT] HiveMQ Dedicated Cloud client initialized (Port 8883 TLS).");
   Serial.println("[READY] ESP32 Gateway Active! Listening for STM32 telemetry...\n");
 }
 
@@ -438,14 +442,14 @@ void reconnectMqtt() {
   lastMqttReconnectMs = millis();
 
   String clientId = "POWER_IQ_ESP32_" + String((uint32_t)ESP.getEfuseMac(), HEX);
-  Serial.print("[MQTT] Connecting to broker.hivemq.com:1883... ");
-  if (mqttClient.connect(clientId.c_str())) {
+  Serial.print("[MQTT] Connecting to Dedicated HiveMQ Cloud (TLS 8883)... ");
+  if (mqttClient.connect(clientId.c_str(), MQTT_USERNAME, MQTT_PASSWORD)) {
     Serial.println("CONNECTED!");
     mqttClient.subscribe(MQTT_TOPIC_COMMANDS);
     Serial.printf("[MQTT] Subscribed to topic: %s\n", MQTT_TOPIC_COMMANDS);
     digitalWrite(PIN_WIFI_LED, HIGH);
   } else {
-    Serial.printf("FAILED (rc=%d), will retry\n", mqttClient.state());
+    Serial.printf("FAILED (rc=%d), will retry in 4s\n", mqttClient.state());
   }
 }
 
