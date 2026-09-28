@@ -1,31 +1,41 @@
 /*
 ================================================================================
  POWER IQ — Low-Power Multi-Shaft Solar Cell Tracking System
- Subsystem: STM32 ZERO-First Sun Tracking + DHT11 Temp/Humidity Telemetry
+ Subsystem: STM32 Sun Tracking + Voltage Sensor (33k/6.8k) + DHT11 + I2C LCD
  Platform : STM32F103C8T6 "Blue Pill" (32-bit ARM Cortex-M3 @ 72 MHz)
  Authors  : Prathamesh Sapate (Lead), Shreyash Pachade, Vansh Dobhale, Prachi Ronge
- Purpose  : Precision Sun Tracking with Live Temperature & Humidity Monitoring
+ Purpose  : 100% Pure STM32F103C8T6 ARM Firmware
 ================================================================================
 
- HARDWARE PIN ALLOCATION (STM32 BLUE PILL):
-   - PB8   -> A4988 STEP (Pulse)
-   - PB9   -> A4988 DIR  (Direction)
-   - PB10  -> A4988 ENABLE (Active-LOW: 0=Moving, 1=Silent 0W Sleep)
-   - PB11  -> Hall Effect 0.0° Home Sensor (Active-LOW)
-   - PC13  -> Onboard Status LED (Active-LOW)
-   - PB5   -> DHT11 Sensor Data (Temperature & Humidity)
-
-   - PA0   -> Top Sector Sensor 1 (ADC1_IN0)
-   - PA1   -> Top Sector Sensor 2 (ADC1_IN1)
-   - PA4   -> Bottom Sector Sensor 1 (ADC1_IN4)
-   - PA5   -> Bottom Sector Sensor 2 (ADC1_IN5)
-
-   - PA9   -> USB-TTL RX (USART1_TX @ 9600 Baud)
-   - PA10  -> USB-TTL TX (USART1_RX @ 9600 Baud)
+ HARDWARE WIRING SPECIFICATIONS (STM32 BLUE PILL):
+   1. A4988 STEPPER DRIVER:
+      - PB8   -> A4988 STEP (Pulse)
+      - PB9   -> A4988 DIR  (Direction)
+      - PB10  -> A4988 ENABLE (Active-LOW: 0=Moving, 1=Silent 0W Sleep)
+   2. ZERO DATUM HOME SENSOR:
+      - PB11  -> Hall Effect 0.0° Home Sensor (Active-LOW)
+   3. 4-QUADRANT LDR SUN SENSORS:
+      - PA0   -> Top Sector Sensor 1 (ADC1_IN0)
+      - PA1   -> Top Sector Sensor 2 (ADC1_IN1)
+      - PA4   -> Bottom Sector Sensor 1 (ADC1_IN4)
+      - PA5   -> Bottom Sector Sensor 2 (ADC1_IN5)
+   4. TEMPERATURE & HUMIDITY:
+      - PB5   -> DHT11 Data Pin (with 4.7k pullup or module)
+   5. SOLAR PV VOLTAGE SENSOR (Exact User Divider: R1=33k, R2=6.8k):
+      - PA6   -> Voltage Sensor Analog Signal (ADC1_IN6)
+      - Scaling: R1 = 33000 Ohm, R2 = 6800 Ohm -> Multiplier = 5.853
+   6. OPTIONAL I2C 16x2 LCD DISPLAY (0x27):
+      - PB6   -> I2C1_SCL
+      - PB7   -> I2C1_SDA
+   7. PC SERIAL TELEMETRY (USART1 @ 9600 Baud):
+      - PA9   -> USB-TTL RX (USART1_TX)
+      - PA10  -> USB-TTL TX (USART1_RX)
 ================================================================================
 */
 
 #include <Arduino.h>
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
 #include <DHT.h>
 
 // =============================================================================
@@ -60,6 +70,20 @@ DHT dht(PIN_DHT11, DHTTYPE);
 float currentTemp     = 0.0f; // Temperature in deg C
 float currentHumidity = 0.0f; // Relative Humidity in %
 unsigned long lastDhtReadTime = 0;
+
+// ---------------- SOLAR PV VOLTAGE SENSOR (USER DIVIDER) ----------------
+#define PIN_SOLAR_VOLT  PA6   // STM32 ADC1_IN6
+const float RESISTOR_R1 = 33000.0f; // 33k Ohm
+const float RESISTOR_R2 =  6800.0f; // 6.8k Ohm
+float refVoltage        = 3.3f;     // STM32 3.3V reference voltage (adjustable)
+
+float solarVoltage      = 0.0f;     // Calculated input voltage (V)
+unsigned long lastVoltReadTime = 0;
+
+// ---------------- OPTIONAL I2C 16x2 LCD DISPLAY (0x27) ----------------
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+bool isLcdPresent = false;
+unsigned long lastLcdUpdateTime = 0;
 
 // ---------------- KINEMATICS & PROVEN BENCH CONSTANTS ----------------
 const float STEPS_PER_DEGREE = 10.556f; // 19:1 Worm gear ratio
@@ -135,6 +159,8 @@ void stepPulse(int delayUs);
 void moveToAngle(float targetAngle, int speedUs = 0);
 void findZeroHomeDatum();
 void updateDhtSensors();
+void updateVoltageSensor();
+void updateLcdDisplay(const char* stateStr);
 void processSerialInput();
 void executeSunTracking();
 void printTelemetry(int topVal, int botVal, int diff, const char* stateStr);
@@ -159,11 +185,25 @@ void setup() {
   pinMode(PIN_LDR_BOT1, INPUT);
   pinMode(PIN_LDR_BOT2, INPUT);
   pinMode(PIN_HALL_HOME, INPUT_PULLUP);
+  pinMode(PIN_SOLAR_VOLT, INPUT);
 
   // 3. Initialize DHT11 Sensor
   dht.begin();
 
-  // 4. Serial Communication @ 9600 Baud
+  // 4. Initialize I2C Bus & Detect Optional LCD (0x27)
+  Wire.begin();
+  Wire.beginTransmission(0x27);
+  if (Wire.endTransmission() == 0) {
+    isLcdPresent = true;
+    lcd.begin();
+    lcd.backlight();
+    lcd.setCursor(0, 0);
+    lcd.print("POWER IQ TRACKER");
+    lcd.setCursor(0, 1);
+    lcd.print("Calibrating 0.0...");
+  }
+
+  // 5. Serial Communication @ 9600 Baud
   Serial.begin(9600);
 #if HAS_SERIAL1
   Serial1.begin(9600);
@@ -173,17 +213,19 @@ void setup() {
 
   printlnAll();
   printlnAll(F("============================================================================"));
-  printlnAll(F(" POWER IQ — STM32 SUN TRACKER + DHT11 TEMPERATURE & HUMIDITY                "));
+  printlnAll(F(" POWER IQ — STM32 SUN TRACKER + VOLTAGE (33k/6.8k) + DHT11 + I2C LCD        "));
+  printlnAll(F(" Platform     : STM32F103C8T6 32-bit ARM Cortex-M3 @ 72 MHz (100% Pure)     "));
   printlnAll(F(" Calibration  : 10.556 steps/deg | Safety Limits: -40.0 to +40.0 deg        "));
   printAll(F(" Tracking Spd : ")); printAll(TRACKING_SPEED_US);
   printAll(F(" us | ZERO Homing Spd: ")); printAll(ZERO_HOMING_SPEED_US); printlnAll(F(" us"));
-  printlnAll(F(" Sensors      : 4x LDRs, Hall Effect (PB11), DHT11 Temp/Humid (PB5)         "));
+  printlnAll(F(" Sensors      : 4x LDRs, Hall (PB11), DHT11 (PB5), Voltage PA6 (33k/6.8k)   "));
   printlnAll(F("============================================================================"));
 
-  // 5. Read initial environment sample
+  // 6. Initial Sensor Readings
   updateDhtSensors();
+  updateVoltageSensor();
 
-  // 6. GUARANTEED ZERO POSITIONING AT STARTUP
+  // 7. GUARANTEED ZERO POSITIONING AT STARTUP
   findZeroHomeDatum();
 
   digitalWrite(PIN_STATUS_LED, HIGH); // LED OFF (Ready)
@@ -277,8 +319,9 @@ void loop() {
   // 1. Process any incoming Serial commands
   processSerialInput();
 
-  // 2. Periodic DHT11 Environment Reading (every 2.5 seconds, non-blocking)
+  // 2. Periodic Sensor Updates (Non-blocking)
   updateDhtSensors();
+  updateVoltageSensor();
 
   // 3. Closed-Loop Sun Tracking (every 500ms)
   unsigned long now = millis();
@@ -289,7 +332,7 @@ void loop() {
 }
 
 // =============================================================================
-// DHT11 NON-BLOCKING SENSOR READ
+// DHT11 NON-BLOCKING SENSOR READ (EVERY 2.5 SECONDS)
 // =============================================================================
 void updateDhtSensors() {
   unsigned long now = millis();
@@ -302,6 +345,56 @@ void updateDhtSensors() {
       currentHumidity = h;
     }
   }
+}
+
+// =============================================================================
+// SOLAR PV VOLTAGE SENSOR (EXACT USER DIVIDER: R1=33k, R2=6.8k)
+// =============================================================================
+void updateVoltageSensor() {
+  unsigned long now = millis();
+  if (now - lastVoltReadTime >= 500) {
+    lastVoltReadTime = now;
+    long sumV = 0;
+    for (int i = 0; i < 8; i++) {
+      sumV += analogRead(PIN_SOLAR_VOLT);
+      delayMicroseconds(50);
+    }
+    int rawV = sumV / 8;
+    float adcVolt = (rawV * refVoltage) / 4095.0f;
+    // V_in = V_adc / (R2 / (R1 + R2)) = V_adc * (R1 + R2) / R2
+    solarVoltage = adcVolt / (RESISTOR_R2 / (RESISTOR_R1 + RESISTOR_R2));
+    if (solarVoltage < 0.15f) solarVoltage = 0.0f; // Noise filter floor
+  }
+}
+
+// =============================================================================
+// OPTIONAL I2C 16x2 LCD DISPLAY REFRESH
+// =============================================================================
+void updateLcdDisplay(const char* stateStr) {
+  if (!isLcdPresent) return;
+  unsigned long now = millis();
+  if (now - lastLcdUpdateTime < 800) return;
+  lastLcdUpdateTime = now;
+
+  // Line 0: Voltage & Angle
+  lcd.setCursor(0, 0);
+  lcd.print("V:");
+  lcd.print(solarVoltage, 1);
+  lcd.print("V A:");
+  if (currentAngle >= 0) lcd.print("+");
+  lcd.print(currentAngle, 0);
+  lcd.print((char)223); // degree sign
+  lcd.print("   ");
+
+  // Line 1: Temp & Humidity
+  lcd.setCursor(0, 1);
+  lcd.print("T:");
+  lcd.print((int)currentTemp);
+  lcd.print("C H:");
+  lcd.print((int)currentHumidity);
+  lcd.print("% ");
+  if (isAutoTracking) lcd.print("AUTO");
+  else lcd.print("MAN ");
 }
 
 // =============================================================================
@@ -415,7 +508,10 @@ void executeSunTracking() {
     }
   }
 
-  // 6. Print Telemetry every 2 cycles (every 1 second)
+  // 6. Update LCD Display if present
+  updateLcdDisplay(trackingState);
+
+  // 7. Print Telemetry every 2 cycles (every 1 second)
   if (frameCount % 2 == 0) {
     printTelemetry(avgTop, avgBottom, diff, trackingState);
   }
@@ -443,6 +539,8 @@ void printTelemetry(int topVal, int botVal, int diff, const char* stateStr) {
 
   printAll(F(" Environment : Temp = ")); printAll(currentTemp, 1);
   printAll(F(" deg C | Humidity = ")); printAll(currentHumidity, 1); printlnAll(F(" %"));
+
+  printAll(F(" Solar Yield  : PV Voltage = ")); printAll(solarVoltage, 2); printlnAll(F(" V"));
 
   printAll(F(" Hall Magnet : "));
   printAll(digitalRead(PIN_HALL_HOME) == LOW ? F("DETECTED (0.0 HOME)") : F("OPEN"));
@@ -565,6 +663,14 @@ void handleCommand(char* cmd) {
       printAll(val); printlnAll(F(" us"));
     }
   }
+  else if (strncasecmp(cmd, "VREF ", 5) == 0) {
+    float val = atof(cmd + 5);
+    if (val > 2.0f && val < 5.5f) {
+      refVoltage = val;
+      printAll(F("\n[CMD] Voltage Reference calibrated to: "));
+      printAll(refVoltage, 2); printlnAll(F(" V"));
+    }
+  }
   else if (strncasecmp(cmd, "DEADBAND ", 9) == 0) {
     int val = atoi(cmd + 9);
     if (val >= 5 && val <= 1000) {
@@ -582,6 +688,9 @@ void handleCommand(char* cmd) {
     printAll(F(" Homing Speed   : ")); printAll(ZERO_HOMING_SPEED_US); printlnAll(F(" us"));
     printAll(F(" Temperature    : ")); printAll(currentTemp, 1); printlnAll(F(" deg C"));
     printAll(F(" Humidity       : ")); printAll(currentHumidity, 1); printlnAll(F(" %"));
+    printAll(F(" Solar PV Volt  : ")); printAll(solarVoltage, 2); printlnAll(F(" V (R1=33k, R2=6.8k)"));
+    printAll(F(" VREF Voltage   : ")); printAll(refVoltage, 2); printlnAll(F(" V"));
+    printAll(F(" LCD 16x2 (I2C) : ")); printlnAll(isLcdPresent ? F("CONNECTED (0x27)") : F("NOT DETECTED"));
     printAll(F(" Steps/Deg      : ")); printlnAll(STEPS_PER_DEGREE, 4);
     printAll(F(" Deadband       : ")); printlnAll(deadbandThreshold);
     printAll(F(" Hall Magnet    : ")); printlnAll(digitalRead(PIN_HALL_HOME) == LOW ? F("DETECTED") : F("OPEN"));
@@ -661,6 +770,7 @@ void printHelp() {
   printlnAll(F(" HOME             : Re-run Hall-effect ZERO calibration    "));
   printlnAll(F(" SPEED_TRACK <us> : Adjust sun tracking speed (default: 2000)"));
   printlnAll(F(" SPEED_HOME <us>  : Adjust ZERO homing speed (default: 2500)"));
+  printlnAll(F(" VREF <float>     : Calibrate ADC VREF voltage (default: 3.3)"));
   printlnAll(F(" INVERT           : Flip motor tracking direction (+/-)    "));
   printlnAll(F(" DEADBAND <n>     : Adjust optical deadband (default: 50)  "));
   printlnAll(F(" STATUS           : Display system parameters & sensors     "));
