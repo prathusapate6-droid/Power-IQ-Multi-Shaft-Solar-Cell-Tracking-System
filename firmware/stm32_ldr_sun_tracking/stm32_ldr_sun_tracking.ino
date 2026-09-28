@@ -1,10 +1,10 @@
 /*
 ================================================================================
  POWER IQ — Low-Power Multi-Shaft Solar Cell Tracking System
- Subsystem: STM32 Sun Tracking + Solar Power (V+I+P) + Battery Side + DHT11
+ Subsystem: STM32 Sun Tracking + Manual Pot/Btn + Solar Power (V+I+P) + ESP32
  Platform : STM32F103C8T6 "Blue Pill" (32-bit ARM Cortex-M3 @ 72 MHz)
  Authors  : Prathamesh Sapate (Lead), Shreyash Pachade, Vansh Dobhale, Prachi Ronge
- Purpose  : 100% Pure STM32F103C8T6 ARM Firmware (Guaranteed Serial Stream)
+ Purpose  : 100% Pure STM32 Firmware (Dual UART: PC Debug + ESP32 Link)
 ================================================================================
 
  HARDWARE WIRING SPECIFICATIONS (STM32 BLUE PILL):
@@ -19,19 +19,23 @@
       - PA1   -> Top Sector Sensor 2 (ADC1_IN1)
       - PA4   -> Bottom Sector Sensor 1 (ADC1_IN4)
       - PA5   -> Bottom Sector Sensor 2 (ADC1_IN5)
-   4. TEMPERATURE & HUMIDITY:
-      - PB5   -> DHT11 Data Pin (with 4.7k pullup or module)
+   4. MANUAL CONTROLS:
+      - PB0   -> 10k Potentiometer Wiper (ADC1_IN8) [-40° to +40° Manual Angle]
+      - PB12  -> Auto/Manual Mode Push Button (Active-LOW with Internal Pullup)
    5. SOLAR PV POWER MONITORING (Voltage + Current):
       - PA6   -> Solar PV Voltage (ADC1_IN6) [R1=33k, R2=6.8k divider]
-      - PA7   -> Solar PV Current (ADC1_IN7) [ACS712 or Shunt Sensor]
-   6. BATTERY POWER MONITORING (Optional / Reserved):
-      - PB0   -> Battery Voltage (ADC1_IN8) [R1=33k, R2=6.8k divider]
-      - PB1   -> Battery Current (ADC1_IN9) [ACS712 or Shunt Sensor]
-   7. SERIAL TELEMETRY (USART1 @ 9600 Baud):
-      - PA9   -> USB-TTL RX (USART1_TX)
-      - PA10  -> USB-TTL TX (USART1_RX)
-   8. VISUAL HEARTBEAT LED:
-      - PC13  -> On-board Green LED (Blinks every 1s when active)
+      - PA7   -> Solar PV Current (ADC1_IN7) [ACS712 Sensor Out]
+   6. BATTERY MONITORING:
+      - PB1   -> Battery Voltage (ADC1_IN9) [Voltage divider]
+   7. ENVIRONMENT SENSOR:
+      - PB5   -> DHT11 Data Pin
+   8. DUAL HARDWARE UART PORTS:
+      - PA9   -> USART1_TX (PC USB-TTL RX) @ 9600 Baud
+      - PA10  -> USART1_RX (PC USB-TTL TX) @ 9600 Baud
+      - PA2   -> USART2_TX (ESP32 RX2 - GPIO 16) @ 9600 Baud
+      - PA3   -> USART2_RX (ESP32 TX2 - GPIO 17) @ 9600 Baud
+   9. VISUAL STATUS:
+      - PC13  -> On-board LED (Active-LOW, Heartbeat Pulse)
 ================================================================================
 */
 
@@ -57,29 +61,24 @@ int TRACKING_SPEED_US    = 2000;  // Speed during Sun Tracking motion (default: 
 #define PIN_HALL_HOME   PB11  // Hall-effect Home Sensor (Active LOW)
 #define PIN_DHT11       PB5   // DHT11 Data Pin
 
+#define PIN_POT_MANUAL  PB0   // 10k Potentiometer (ADC1_IN8)
+#define PIN_BTN_MODE    PB12  // Mode Toggle Button (Active LOW)
+
 // ---------------- POWER MONITORING PINS (SOLAR & BATTERY) ----------------
 #define PIN_SOLAR_VOLT  PA6   // Solar Voltage Analog Input
 #define PIN_SOLAR_CURR  PA7   // Solar Current Analog Input
-#define PIN_BATT_VOLT   PB0   // Battery Voltage Analog Input
-#define PIN_BATT_CURR   PB1   // Battery Current Analog Input
+#define PIN_BATT_VOLT   PB1   // Battery Voltage Analog Input
 
-// Resistor Divider: R1=33k, R2=6.8k -> Factor = (33000 + 6800) / 6800 = 5.8529
-const float VOLT_DIVIDER_RATIO = (33000.0f + 6800.0f) / 6800.0f;
+const float VOLT_DIVIDER_RATIO = (33000.0f + 6800.0f) / 6800.0f; // 5.8529
 float refVoltage = 3.3f; // STM32 ADC Reference Voltage
 
-// Current Sensor Sensitivity (ACS712 20A = 0.100 V/A, 5A = 0.185 V/A, 30A = 0.066 V/A)
-float currentSensitivity = 0.100f; // Default 100 mV/A (ACS712-20A)
-float currentZeroOffset   = 1.65f;  // Zero current voltage offset (VCC/2 for 3.3V or 2.5V for 5V)
+float currentSensitivity = 0.100f; // 100 mV/A (ACS712-20A)
+float currentZeroOffset   = 1.65f;  // VCC/2 offset
 
-// Power Metrics
 float solarVoltage = 0.0f; // Volts
 float solarCurrent = 0.0f; // Amps
 float solarPower   = 0.0f; // Watts
-
 float battVoltage  = 0.0f; // Volts
-float battCurrent  = 0.0f; // Amps
-float battPower    = 0.0f; // Watts
-
 unsigned long lastPowerReadTime = 0;
 
 // ---------------- DHT11 ENVIRONMENT ----------------
@@ -106,8 +105,13 @@ unsigned long frameCount = 0;
 unsigned long lastHeartbeatTime = 0;
 bool heartbeatState = false;
 
+// Manual Button Debounce & Potentiometer Tracking
+bool lastBtnState = HIGH;
+unsigned long lastBtnDebounceMs = 0;
+float lastPotTargetAngle = 0.0f;
+
 // ---------------- DUAL-SERIAL OUTPUT HELPERS ----------------
-// Always print to Serial1 (USART1 on PA9) and Serial (USB CDC if enabled)
+// Sends to Serial1 (PC Debug PA9) AND Serial2 (ESP32 IoT PA2)
 #ifdef SERIAL_USB
   #define HAS_USB_SERIAL 1
 #else
@@ -117,6 +121,7 @@ bool heartbeatState = false;
 template<typename T>
 void printAll(T msg) {
   Serial1.print(msg);
+  Serial2.print(msg);
 #if HAS_USB_SERIAL
   Serial.print(msg);
 #endif
@@ -125,6 +130,7 @@ void printAll(T msg) {
 template<typename T, typename P>
 void printAll(T msg, P p) {
   Serial1.print(msg, p);
+  Serial2.print(msg, p);
 #if HAS_USB_SERIAL
   Serial.print(msg, p);
 #endif
@@ -132,6 +138,7 @@ void printAll(T msg, P p) {
 
 inline void printlnAll() {
   Serial1.println();
+  Serial2.println();
 #if HAS_USB_SERIAL
   Serial.println();
 #endif
@@ -140,6 +147,7 @@ inline void printlnAll() {
 template<typename T>
 void printlnAll(T msg) {
   Serial1.println(msg);
+  Serial2.println(msg);
 #if HAS_USB_SERIAL
   Serial.println(msg);
 #endif
@@ -148,6 +156,7 @@ void printlnAll(T msg) {
 template<typename T, typename P>
 void printlnAll(T msg, P p) {
   Serial1.println(msg, p);
+  Serial2.println(msg, p);
 #if HAS_USB_SERIAL
   Serial.println(msg, p);
 #endif
@@ -221,6 +230,7 @@ void moveToAngle(float targetAngle, int speedUs = 0);
 void findZeroHomeDatum();
 void updateDhtSensors();
 void updatePowerSensors();
+void handleManualControls();
 void processSerialInput();
 void executeSunTracking();
 void printTelemetry(int topVal, int botVal, int diff, const char* stateStr);
@@ -230,8 +240,9 @@ void printHelp();
 // SETUP
 // =============================================================================
 void setup() {
-  // 1. Start Serial immediately on PA9 (TX) and PA10 (RX)
-  Serial1.begin(9600);
+  // 1. Initialize Dual Serial Channels @ 9600 Baud
+  Serial1.begin(9600); // PC Flashing & Telemetry on PA9/PA10
+  Serial2.begin(9600); // ESP32 Telemetry Link on PA2/PA3
 #if HAS_USB_SERIAL
   Serial.begin(9600);
 #endif
@@ -251,10 +262,12 @@ void setup() {
   pinMode(PIN_LDR_BOT2, INPUT);
   pinMode(PIN_HALL_HOME, INPUT_PULLUP);
 
+  pinMode(PIN_POT_MANUAL, INPUT);
+  pinMode(PIN_BTN_MODE, INPUT_PULLUP);
+
   pinMode(PIN_SOLAR_VOLT, INPUT);
   pinMode(PIN_SOLAR_CURR, INPUT);
   pinMode(PIN_BATT_VOLT, INPUT);
-  pinMode(PIN_BATT_CURR, INPUT);
 
   // Triple blink on boot for instant visual confirmation
   for (int b = 0; b < 3; b++) {
@@ -264,12 +277,12 @@ void setup() {
 
   printlnAll();
   printlnAll(F("========================================================"));
-  printlnAll(F(" POWER IQ — STM32 SUN TRACKER & POWER TELEMETRY         "));
+  printlnAll(F(" POWER IQ — MULTI-SHAFT SOLAR CELL TRACKING SYSTEM      "));
   printlnAll(F(" Platform     : STM32F103C8T6 ARM Cortex-M3 (72 MHz)    "));
-  printlnAll(F(" Serial Port  : USART1 (PA9 TX, PA10 RX) @ 9600 Baud    "));
-  printlnAll(F(" Solar Power  : Voltage (PA6 33k/6.8k) + Current (PA7)  "));
-  printlnAll(F(" Battery Side : Voltage (PB0) + Current (PB1)           "));
-  printlnAll(F(" Environment  : DHT11 Temp/Humidity (PB5)               "));
+  printlnAll(F(" Ports        : USART1 (PA9/10 PC) + USART2 (PA2/3 ESP) "));
+  printlnAll(F(" Manual Ctrl  : Button PB12 (Mode) + 10k Pot PB0 (Knob) "));
+  printlnAll(F(" Solar Power  : Voltage (PA6) + Current (PA7) -> Watts   "));
+  printlnAll(F(" Battery Volt : Scaled Divider on PB1                   "));
   printlnAll(F(" Calibration  : 10.556 steps/deg | Angle: -40 to +40 deg"));
   printAll(F(" Speeds       : Tracking: ")); printAll(TRACKING_SPEED_US);
   printAll(F(" us | ZERO Homing: ")); printAll(ZERO_HOMING_SPEED_US); printlnAll(F(" us"));
@@ -290,21 +303,26 @@ void setup() {
 // MAIN LOOP
 // =============================================================================
 void loop() {
-  // 1. Process Serial Commands
+  // 1. Process Serial Commands (From PC or ESP32)
   processSerialInput();
 
-  // 2. Read Sensors Periodically
+  // 2. Hardware Manual Mode Button & Potentiometer Processing
+  handleManualControls();
+
+  // 3. Read Power & Environment Sensors Periodically
   updatePowerSensors();
   updateDhtSensors();
 
-  // 3. Closed-Loop Sun Tracking (every 500ms)
+  // 4. Sun Tracking (every 500ms in AUTO mode)
   unsigned long now = millis();
   if (now - lastTrackTime >= 500) {
     lastTrackTime = now;
-    executeSunTracking();
+    if (isAutoTracking) {
+      executeSunTracking();
+    }
   }
 
-  // 4. Heartbeat LED (Toggles every 1s when running normally)
+  // 5. Heartbeat LED (Toggles every 1s when active)
   if (now - lastHeartbeatTime >= 1000) {
     lastHeartbeatTime = now;
     heartbeatState = !heartbeatState;
@@ -313,14 +331,49 @@ void loop() {
 }
 
 // =============================================================================
-// POWER SENSING (SOLAR & BATTERY SIDES)
+// MANUAL CONTROLS: HARDWARE BUTTON (PB12) & 10K POTENTIOMETER (PB0)
+// =============================================================================
+void handleManualControls() {
+  // 1. Mode Toggle Button Debouncing (PB12)
+  bool reading = digitalRead(PIN_BTN_MODE);
+  if (reading != lastBtnState) {
+    lastBtnDebounceMs = millis();
+  }
+  if ((millis() - lastBtnDebounceMs) > 50) {
+    // If state has stabilized and button is pressed (Active LOW)
+    if (reading == LOW && lastBtnState == HIGH) {
+      isAutoTracking = !isAutoTracking;
+      printlnAll();
+      printAll(F(">>> [MODE SWITCH] Mode changed by hardware button to: "));
+      printlnAll(isAutoTracking ? F("AUTO (LDR Sun Tracking)") : F("MANUAL (Potentiometer Knob)"));
+      printlnAll();
+    }
+  }
+  lastBtnState = reading;
+
+  // 2. In MANUAL mode, potentiometer on PB0 sets slat angle directly
+  if (!isAutoTracking) {
+    int rawPot = analogRead(PIN_POT_MANUAL);
+    // Transfer function: 0 -> -40 deg, 2048 -> 0 deg, 4095 -> +40 deg
+    float potAngle = ((rawPot / 4095.0f) * 80.0f) - 40.0f;
+
+    // Apply 1.0 deg deadband to avoid continuous micro-jitter
+    if (fabs(potAngle - currentAngle) >= 1.0f) {
+      moveToAngle(potAngle, TRACKING_SPEED_US);
+      lastPotTargetAngle = potAngle;
+    }
+  }
+}
+
+// =============================================================================
+// POWER SENSING (SOLAR & BATTERY)
 // =============================================================================
 void updatePowerSensors() {
   unsigned long now = millis();
   if (now - lastPowerReadTime < 500) return;
   lastPowerReadTime = now;
 
-  // 1. Read Solar Voltage (PA6) with 8x oversampling
+  // 1. Solar Voltage (PA6)
   long sumSV = 0;
   for (int i = 0; i < 8; i++) {
     sumSV += analogRead(PIN_SOLAR_VOLT);
@@ -330,21 +383,20 @@ void updatePowerSensors() {
   solarVoltage = adcVoltS * VOLT_DIVIDER_RATIO;
   if (solarVoltage < 0.15f) solarVoltage = 0.0f;
 
-  // 2. Read Solar Current (PA7) with 8x oversampling
+  // 2. Solar Current (PA7)
   long sumSC = 0;
   for (int i = 0; i < 8; i++) {
     sumSC += analogRead(PIN_SOLAR_CURR);
     delayMicroseconds(40);
   }
   float adcCurrS = ((sumSC / 8.0f) * refVoltage) / 4095.0f;
-  // Current I = (V_adc - V_zero) / Sensitivity
   solarCurrent = (adcCurrS - currentZeroOffset) / currentSensitivity;
-  if (solarCurrent < 0.05f) solarCurrent = 0.0f; // Filter negative/noise floor
+  if (solarCurrent < 0.05f) solarCurrent = 0.0f;
 
-  // 3. Compute Solar Power (Watts)
+  // 3. Solar Power (Watts)
   solarPower = solarVoltage * solarCurrent;
 
-  // 4. Read Battery Voltage (PB0) & Current (PB1)
+  // 4. Battery Voltage (PB1)
   long sumBV = 0;
   for (int i = 0; i < 8; i++) {
     sumBV += analogRead(PIN_BATT_VOLT);
@@ -353,17 +405,6 @@ void updatePowerSensors() {
   float adcVoltB = ((sumBV / 8.0f) * refVoltage) / 4095.0f;
   battVoltage = adcVoltB * VOLT_DIVIDER_RATIO;
   if (battVoltage < 0.15f) battVoltage = 0.0f;
-
-  long sumBC = 0;
-  for (int i = 0; i < 8; i++) {
-    sumBC += analogRead(PIN_BATT_CURR);
-    delayMicroseconds(40);
-  }
-  float adcCurrB = ((sumBC / 8.0f) * refVoltage) / 4095.0f;
-  battCurrent = (adcCurrB - currentZeroOffset) / currentSensitivity;
-  if (battCurrent < 0.05f) battCurrent = 0.0f;
-
-  battPower = battVoltage * battCurrent;
 }
 
 // =============================================================================
@@ -500,7 +541,7 @@ void executeSunTracking() {
     if (darkDuration >= NIGHT_PARK_DELAY_MS) {
       if (fabs(currentAngle) > 0.5f) {
         trackingState = "NIGHT CONFIRMED (8s) -> Parking at 0.0 deg";
-        if (isAutoTracking) moveToAngle(0.0f, TRACKING_SPEED_US);
+        moveToAngle(0.0f, TRACKING_SPEED_US);
       } else {
         trackingState = "NIGHT SLEEP (Parked at 0.0 deg, 0W Coils OFF)";
         motorOff();
@@ -517,29 +558,21 @@ void executeSunTracking() {
       motorOff();
     }
     else if (diff > deadbandThreshold) {
-      if (isAutoTracking) {
-        float nextAngle = currentAngle + 1.0f;
-        if (nextAngle <= MAX_ANGLE) {
-          trackingState = "SUN ON TOP (PA0+PA1) -> Moving (+)";
-          moveToAngle(nextAngle, TRACKING_SPEED_US);
-        } else {
-          trackingState = "LIMIT REACHED (+40.0 deg MAX)";
-        }
+      float nextAngle = currentAngle + 1.0f;
+      if (nextAngle <= MAX_ANGLE) {
+        trackingState = "SUN ON TOP (PA0+PA1) -> Moving (+)";
+        moveToAngle(nextAngle, TRACKING_SPEED_US);
       } else {
-        trackingState = "SUN ON TOP (Manual Mode)";
+        trackingState = "LIMIT REACHED (+40.0 deg MAX)";
       }
     }
     else {
-      if (isAutoTracking) {
-        float nextAngle = currentAngle - 1.0f;
-        if (nextAngle >= MIN_ANGLE) {
-          trackingState = "SUN ON BOTTOM (PA4+PA5) -> Moving (-)";
-          moveToAngle(nextAngle, TRACKING_SPEED_US);
-        } else {
-          trackingState = "LIMIT REACHED (-40.0 deg MIN)";
-        }
+      float nextAngle = currentAngle - 1.0f;
+      if (nextAngle >= MIN_ANGLE) {
+        trackingState = "SUN ON BOTTOM (PA4+PA5) -> Moving (-)";
+        moveToAngle(nextAngle, TRACKING_SPEED_US);
       } else {
-        trackingState = "SUN ON BOTTOM (Manual Mode)";
+        trackingState = "LIMIT REACHED (-40.0 deg MIN)";
       }
     }
   }
@@ -559,7 +592,7 @@ void printTelemetry(int topVal, int botVal, int diff, const char* stateStr) {
   if (currentAngle >= 0) printAll(F("+"));
   printAll(currentAngle, 1);
   printAll(F(" deg | Mode: "));
-  printAll(isAutoTracking ? F("AUTO") : F("MANUAL"));
+  printAll(isAutoTracking ? F("AUTO (LDR)") : F("MANUAL (POT)"));
   printAll(F(" | Homed: "));
   printlnAll(isHomed ? F("YES (0.0 ZERO)") : F("NO"));
 
@@ -574,9 +607,7 @@ void printTelemetry(int topVal, int botVal, int diff, const char* stateStr) {
   printAll(F(" | Current: ")); printAll(solarCurrent, 2); printAll(F(" A"));
   printAll(F(" | Power: ")); printAll(solarPower, 2); printlnAll(F(" W"));
 
-  printAll(F(" [BATTERY SIDE] Voltage: ")); printAll(battVoltage, 2); printAll(F(" V"));
-  printAll(F(" | Current: ")); printAll(battCurrent, 2); printAll(F(" A"));
-  printAll(F(" | Power: ")); printAll(battPower, 2); printlnAll(F(" W"));
+  printAll(F(" [BATTERY]      Voltage: ")); printAll(battVoltage, 2); printlnAll(F(" V"));
 
   printAll(F(" [ENVIRONMENT]  Temp: ")); printAll(currentTemp, 1); printAll(F(" C"));
   printAll(F(" | Humidity: ")); printAll(currentHumidity, 1); printlnAll(F(" %"));
@@ -652,7 +683,7 @@ void handleCommand(char* cmd) {
   }
   else if (strcasecmp(cmd, "MANUAL") == 0 || strcasecmp(cmd, "STOP") == 0) {
     isAutoTracking = false;
-    printlnAll(F("\n[CMD] Auto Sun Tracking PAUSED. Manual control active.\n"));
+    printlnAll(F("\n[CMD] Manual control active (Potentiometer knob enabled).\n"));
   }
   else if (strcasecmp(cmd, "HOME") == 0) {
     isAutoTracking = false;
@@ -705,14 +736,13 @@ void handleCommand(char* cmd) {
     printlnAll(F("\n--- SYSTEM PARAMETERS ---"));
     printAll(F(" Angle          : ")); printAll(currentAngle, 1); printlnAll(F(" deg"));
     printAll(F(" Homed (ZERO)   : ")); printlnAll(isHomed ? F("YES (0.0 deg)") : F("NO"));
-    printAll(F(" Tracking Mode  : ")); printlnAll(isAutoTracking ? F("AUTO") : F("MANUAL"));
+    printAll(F(" Mode           : ")); printlnAll(isAutoTracking ? F("AUTO (LDR)") : F("MANUAL (POT)"));
     printAll(F(" Tracking Speed : ")); printAll(TRACKING_SPEED_US); printlnAll(F(" us"));
     printAll(F(" Homing Speed   : ")); printAll(ZERO_HOMING_SPEED_US); printlnAll(F(" us"));
     printAll(F(" Solar Voltage  : ")); printAll(solarVoltage, 2); printlnAll(F(" V"));
     printAll(F(" Solar Current  : ")); printAll(solarCurrent, 2); printlnAll(F(" A"));
     printAll(F(" Solar Power    : ")); printAll(solarPower, 2); printlnAll(F(" W"));
     printAll(F(" Battery Volt   : ")); printAll(battVoltage, 2); printlnAll(F(" V"));
-    printAll(F(" Battery Curr   : ")); printAll(battCurrent, 2); printlnAll(F(" A"));
     printAll(F(" Temperature    : ")); printAll(currentTemp, 1); printlnAll(F(" C"));
     printAll(F(" Humidity       : ")); printAll(currentHumidity, 1); printlnAll(F(" %"));
     printAll(F(" Steps/Deg      : ")); printlnAll(STEPS_PER_DEGREE, 4);
@@ -747,14 +777,30 @@ void handleCommand(char* cmd) {
       isAutoTracking = false;
       printlnAll(F("\n[MANUAL] Moving to commanded angle..."));
       moveToAngle(target, TRACKING_SPEED_US);
-      printlnAll(F("[MANUAL] Reached. (Type 'AUTO' to resume sun tracking)\n"));
+      printlnAll(F("[MANUAL] Reached. (Type 'AUTO' or press button to resume sun tracking)\n"));
     }
   }
 }
 
 void processSerialInput() {
+  // Read from USART1 (PC Debug PA9/10)
   while (Serial1.available()) {
     char c = Serial1.read();
+    if (c == '\r') continue;
+    if (c == '\n') {
+      cmdBuf[cmdPos] = '\0';
+      if (cmdPos > 0) {
+        handleCommand(cmdBuf);
+        cmdPos = 0;
+      }
+    } else if (cmdPos < sizeof(cmdBuf) - 1) {
+      cmdBuf[cmdPos++] = c;
+    }
+  }
+
+  // Read from USART2 (ESP32 Remote Link PA2/3)
+  while (Serial2.available()) {
+    char c = Serial2.read();
     if (c == '\r') continue;
     if (c == '\n') {
       cmdBuf[cmdPos] = '\0';
@@ -789,7 +835,7 @@ void printHelp() {
   printlnAll(F(" POWER IQ — SUN TRACKER SERIAL COMMANDS                 "));
   printlnAll(F("========================================================"));
   printlnAll(F(" AUTO             : Enable continuous automatic sun tracking"));
-  printlnAll(F(" MANUAL           : Pause auto tracking (hold current angle)"));
+  printlnAll(F(" MANUAL           : Pause auto tracking (Potentiometer active)"));
   printlnAll(F(" GOTO <deg>       : Move slats to specific angle (-40 to +40)"));
   printlnAll(F(" ZERO             : Calibrate current position as 0.0 deg  "));
   printlnAll(F(" HOME             : Re-run Hall-effect ZERO calibration    "));
