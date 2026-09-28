@@ -1,29 +1,40 @@
 /*
 ================================================================================
  POWER IQ — Low-Power Multi-Shaft Solar Cell Tracking System
- Subsystem: STM32 Guaranteed Startup ZERO Positioning + LDR Sun Tracking
+ Subsystem: STM32 ZERO-First Sun Tracking + DHT11 Temp/Humidity Telemetry
  Platform : STM32F103C8T6 "Blue Pill" (32-bit ARM Cortex-M3 @ 72 MHz)
  Authors  : Prathamesh Sapate (Lead), Shreyash Pachade, Vansh Dobhale, Prachi Ronge
- Purpose  : Dual Independent Speed Control for ZERO Homing & Sun Tracking
+ Purpose  : Precision Sun Tracking with Live Temperature & Humidity Monitoring
 ================================================================================
 
- USER SPEED & ADJUSTMENT VARIABLES:
-   1. ZERO_HOMING_SPEED_US : Controls the motor speed during ZERO 0.0° homing.
-   2. TRACKING_SPEED_US    : Controls the motor speed during normal sun tracking.
-   (LOWER value = FASTER speed | HIGHER value = SLOWER speed / Higher torque)
+ HARDWARE PIN ALLOCATION (STM32 BLUE PILL):
+   - PB8   -> A4988 STEP (Pulse)
+   - PB9   -> A4988 DIR  (Direction)
+   - PB10  -> A4988 ENABLE (Active-LOW: 0=Moving, 1=Silent 0W Sleep)
+   - PB11  -> Hall Effect 0.0° Home Sensor (Active-LOW)
+   - PC13  -> Onboard Status LED (Active-LOW)
+   - PB5   -> DHT11 Sensor Data (Temperature & Humidity)
+
+   - PA0   -> Top Sector Sensor 1 (ADC1_IN0)
+   - PA1   -> Top Sector Sensor 2 (ADC1_IN1)
+   - PA4   -> Bottom Sector Sensor 1 (ADC1_IN4)
+   - PA5   -> Bottom Sector Sensor 2 (ADC1_IN5)
+
+   - PA9   -> USB-TTL RX (USART1_TX @ 9600 Baud)
+   - PA10  -> USB-TTL TX (USART1_RX @ 9600 Baud)
 ================================================================================
 */
 
 #include <Arduino.h>
+#include <DHT.h>
 
 // =============================================================================
 // 1. USER SPEED & TIMING VARIABLES (TUNE YOUR SPEEDS HERE!)
 // =============================================================================
-// Pulse delay in microseconds (us) for each half of step pulse:
+// Pulse delay in microseconds (us) per step:
 //   - 2500 us = Safe, full torque, smooth benchmark
 //   - 2000 us = Fast, smooth tracking
 //   - 1600 us = Very fast tracking
-//   - 1200 us = Maximum speed limit
 int ZERO_HOMING_SPEED_US = 2500;  // Speed during 0.0 deg ZERO search (default: 2500 us)
 int TRACKING_SPEED_US    = 2000;  // Speed during Sun Tracking motion (default: 2000 us)
 
@@ -39,6 +50,16 @@ int TRACKING_SPEED_US    = 2000;  // Speed during Sun Tracking motion (default: 
 #define PIN_LDR_BOT2    PA5   // Bottom Sector Sensor 2
 
 #define PIN_HALL_HOME   PB11  // Hall-effect Home Sensor (Active LOW)
+
+// ---------------- DHT11 TEMPERATURE & HUMIDITY ----------------
+#define PIN_DHT11       PB5   // DHT11 Data Pin
+#define DHTTYPE         DHT11 // Sensor Model: DHT 11
+
+DHT dht(PIN_DHT11, DHTTYPE);
+
+float currentTemp     = 0.0f; // Temperature in deg C
+float currentHumidity = 0.0f; // Relative Humidity in %
+unsigned long lastDhtReadTime = 0;
 
 // ---------------- KINEMATICS & PROVEN BENCH CONSTANTS ----------------
 const float STEPS_PER_DEGREE = 10.556f; // 19:1 Worm gear ratio
@@ -113,6 +134,7 @@ void motorOff();
 void stepPulse(int delayUs);
 void moveToAngle(float targetAngle, int speedUs = 0);
 void findZeroHomeDatum();
+void updateDhtSensors();
 void processSerialInput();
 void executeSunTracking();
 void printTelemetry(int topVal, int botVal, int diff, const char* stateStr);
@@ -138,7 +160,10 @@ void setup() {
   pinMode(PIN_LDR_BOT2, INPUT);
   pinMode(PIN_HALL_HOME, INPUT_PULLUP);
 
-  // 3. Serial Communication @ 9600 Baud
+  // 3. Initialize DHT11 Sensor
+  dht.begin();
+
+  // 4. Serial Communication @ 9600 Baud
   Serial.begin(9600);
 #if HAS_SERIAL1
   Serial1.begin(9600);
@@ -148,13 +173,17 @@ void setup() {
 
   printlnAll();
   printlnAll(F("============================================================================"));
-  printlnAll(F(" POWER IQ — STM32 SUN TRACKER: ZERO FIRST, THEN TRACK                       "));
+  printlnAll(F(" POWER IQ — STM32 SUN TRACKER + DHT11 TEMPERATURE & HUMIDITY                "));
   printlnAll(F(" Calibration  : 10.556 steps/deg | Safety Limits: -40.0 to +40.0 deg        "));
   printAll(F(" Tracking Spd : ")); printAll(TRACKING_SPEED_US);
   printAll(F(" us | ZERO Homing Spd: ")); printAll(ZERO_HOMING_SPEED_US); printlnAll(F(" us"));
+  printlnAll(F(" Sensors      : 4x LDRs, Hall Effect (PB11), DHT11 Temp/Humid (PB5)         "));
   printlnAll(F("============================================================================"));
 
-  // 4. GUARANTEED ZERO POSITIONING AT STARTUP
+  // 5. Read initial environment sample
+  updateDhtSensors();
+
+  // 6. GUARANTEED ZERO POSITIONING AT STARTUP
   findZeroHomeDatum();
 
   digitalWrite(PIN_STATUS_LED, HIGH); // LED OFF (Ready)
@@ -248,11 +277,30 @@ void loop() {
   // 1. Process any incoming Serial commands
   processSerialInput();
 
-  // 2. Closed-Loop Sun Tracking (every 500ms)
+  // 2. Periodic DHT11 Environment Reading (every 2.5 seconds, non-blocking)
+  updateDhtSensors();
+
+  // 3. Closed-Loop Sun Tracking (every 500ms)
   unsigned long now = millis();
   if (now - lastTrackTime >= 500) {
     lastTrackTime = now;
     executeSunTracking();
+  }
+}
+
+// =============================================================================
+// DHT11 NON-BLOCKING SENSOR READ
+// =============================================================================
+void updateDhtSensors() {
+  unsigned long now = millis();
+  if (now - lastDhtReadTime >= 2500) {
+    lastDhtReadTime = now;
+    float t = dht.readTemperature();
+    float h = dht.readHumidity();
+    if (!isnan(t) && !isnan(h)) {
+      currentTemp = t;
+      currentHumidity = h;
+    }
   }
 }
 
@@ -393,13 +441,15 @@ void printTelemetry(int topVal, int botVal, int diff, const char* stateStr) {
   printAll(diff);
   printAll(F(" (Deadband: +/-")); printAll(deadbandThreshold); printlnAll(F(")"));
 
-  printAll(F(" Speed: Track=")); printAll(TRACKING_SPEED_US);
-  printAll(F("us, Home=")); printAll(ZERO_HOMING_SPEED_US);
-  printAll(F("us | Hall Magnet: "));
-  printlnAll(digitalRead(PIN_HALL_HOME) == LOW ? F("DETECTED (0.0 HOME)") : F("OPEN"));
+  printAll(F(" Environment : Temp = ")); printAll(currentTemp, 1);
+  printAll(F(" deg C | Humidity = ")); printAll(currentHumidity, 1); printlnAll(F(" %"));
 
-  printAll(F(" Motor: 0W Silent Holding | Status: "));
-  printlnAll(stateStr);
+  printAll(F(" Hall Magnet : "));
+  printAll(digitalRead(PIN_HALL_HOME) == LOW ? F("DETECTED (0.0 HOME)") : F("OPEN"));
+  printAll(F(" | Motor: "));
+  printlnAll(F("0W Silent Holding"));
+
+  printAll(F(" Status      : ")); printlnAll(stateStr);
   printlnAll(F("----------------------------------------------------------------------------"));
 }
 
@@ -530,9 +580,10 @@ void handleCommand(char* cmd) {
     printAll(F(" Tracking Mode  : ")); printlnAll(isAutoTracking ? F("AUTO") : F("MANUAL"));
     printAll(F(" Tracking Speed : ")); printAll(TRACKING_SPEED_US); printlnAll(F(" us"));
     printAll(F(" Homing Speed   : ")); printAll(ZERO_HOMING_SPEED_US); printlnAll(F(" us"));
+    printAll(F(" Temperature    : ")); printAll(currentTemp, 1); printlnAll(F(" deg C"));
+    printAll(F(" Humidity       : ")); printAll(currentHumidity, 1); printlnAll(F(" %"));
     printAll(F(" Steps/Deg      : ")); printlnAll(STEPS_PER_DEGREE, 4);
     printAll(F(" Deadband       : ")); printlnAll(deadbandThreshold);
-    printAll(F(" Night Threshold: ")); printlnAll(nightDarkThreshold);
     printAll(F(" Hall Magnet    : ")); printlnAll(digitalRead(PIN_HALL_HOME) == LOW ? F("DETECTED") : F("OPEN"));
     printlnAll(F("---------------------\n"));
   }
