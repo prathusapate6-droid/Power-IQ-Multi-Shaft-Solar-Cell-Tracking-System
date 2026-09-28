@@ -58,7 +58,7 @@ unsigned long lastMqttPublishMs   = 0;
 
 // Firebase Realtime Database Configuration (Direct Cloud Telemetry Storage)
 bool ENABLE_FIREBASE      = true; 
-const char* FIREBASE_HOST = "https://power-iq-solar-2026-default-rtdb.firebaseio.com";
+const char* FIREBASE_HOST = "https://power-iq-solar-2026-9e48c-default-rtdb.firebaseio.com";
 const char* FIREBASE_AUTH = ""; // Leave blank for open rules or put Database Secret
 
 // =============================================================================
