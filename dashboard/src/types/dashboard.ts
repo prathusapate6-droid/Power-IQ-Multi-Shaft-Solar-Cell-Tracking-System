@@ -37,6 +37,8 @@ export interface SolarTelemetry {
   fixedPvBaselineKw: number;
   instantGainPercent: number;
   irradianceWm2: number;
+  battVoltageV?: number;
+  isHardwareOnline?: boolean;
 }
 
 export interface TrackingGeometry {

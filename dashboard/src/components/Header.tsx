@@ -5,7 +5,8 @@ import {
   Pause, 
   AlertTriangle, 
   Info, 
-  Clock
+  Clock,
+  Radio
 } from 'lucide-react';
 
 interface HeaderProps {
@@ -17,6 +18,8 @@ interface HeaderProps {
   onChangeSpeed: (speed: number) => void;
   onOpenConcept: () => void;
   isEmergencyStopped: boolean;
+  isHardwareOnline?: boolean;
+  isMqttConnected?: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -28,6 +31,8 @@ export const Header: React.FC<HeaderProps> = ({
   onChangeSpeed,
   onOpenConcept,
   isEmergencyStopped,
+  isHardwareOnline = false,
+  isMqttConnected = false,
 }) => {
   const [currentTime, setCurrentTime] = useState<string>('');
   const [currentDate, setCurrentDate] = useState<string>('');
@@ -50,21 +55,39 @@ export const Header: React.FC<HeaderProps> = ({
 
   return (
     <header className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm">
-      {/* Top Banner: Prototype & Simulation Disclaimer */}
-      <div className="bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 text-white px-4 py-1 text-xs font-medium flex flex-wrap items-center justify-between gap-2 shadow-inner">
+      {/* Top Banner: Dynamic Physical Hardware Link Status */}
+      <div className={`px-4 py-1.5 text-xs font-medium flex flex-wrap items-center justify-between gap-2 shadow-inner transition-colors duration-300 ${
+        isHardwareOnline 
+          ? 'bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 text-white' 
+          : 'bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 text-white'
+      }`}>
         <div className="flex items-center gap-2">
-          <span className="bg-black/25 px-2 py-0.5 rounded text-[11px] font-bold tracking-wider uppercase border border-white/20">
-            Hackathon Prototype
+          <span className={`px-2 py-0.5 rounded text-[11px] font-bold tracking-wider uppercase border ${
+            isHardwareOnline 
+              ? 'bg-emerald-900/60 text-white border-emerald-300/40' 
+              : 'bg-black/25 text-white border-white/20'
+          }`}>
+            {isHardwareOnline ? 'LIVE HARDWARE' : 'Hackathon Prototype'}
           </span>
           <span>
-            ⚠️ <strong>SIMULATED HARDWARE DATA:</strong> Physical hardware not connected. Telemetry generated via kinematic & solar physics model.
+            {isHardwareOnline ? (
+              <>🟢 <strong>LIVE PHYSICAL TELEMETRY:</strong> Streaming from STM32 Blue Pill + ESP32 Gateway via HiveMQ Cloud.</>
+            ) : (
+              <>⚠️ <strong>SIMULATED HARDWARE DATA:</strong> Physical hardware not connected. Telemetry generated via kinematic & solar physics model.</>
+            )}
           </span>
         </div>
         <div className="flex items-center gap-3 text-[11px] font-mono">
-          <span className="hidden sm:inline opacity-90">Microcontroller: STM32F401RE</span>
-          <span className="hidden md:inline opacity-90">Drive: 1x NEMA23 + Common Worm Axle</span>
-          <span className="bg-white/20 px-2 py-0.5 rounded text-white font-semibold">
-            STATUS: {isEmergencyStopped ? 'E-STOPPED' : 'ONLINE'}
+          <span className="hidden sm:inline opacity-90">Microcontroller: STM32F103C8T6 (Blue Pill)</span>
+          <span className="hidden md:inline opacity-90">Gateway: ESP32 IoT (115200 Baud)</span>
+          <span className={`px-2 py-0.5 rounded font-semibold ${
+            isEmergencyStopped 
+              ? 'bg-rose-900/80 text-white border border-rose-400' 
+              : isHardwareOnline 
+              ? 'bg-emerald-900/60 text-emerald-200 border border-emerald-400/40' 
+              : 'bg-white/20 text-white'
+          }`}>
+            STATUS: {isEmergencyStopped ? 'E-STOPPED' : isHardwareOnline ? 'HARDWARE ONLINE' : 'SIMULATION'}
           </span>
         </div>
       </div>
@@ -86,9 +109,13 @@ export const Header: React.FC<HeaderProps> = ({
               <h1 className="text-2xl font-black tracking-tight text-slate-900 flex items-center gap-1.5">
                 POWER <span className="text-amber-500">IQ</span>
               </h1>
-              <span className="bg-emerald-100 text-emerald-800 text-[11px] font-semibold px-2 py-0.5 rounded-full border border-emerald-300 flex items-center gap-1">
+              <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border flex items-center gap-1 ${
+                isHardwareOnline 
+                  ? 'bg-emerald-100 text-emerald-800 border-emerald-300' 
+                  : 'bg-emerald-100 text-emerald-800 border-emerald-300'
+              }`}>
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping"></span>
-                ONLINE / PROTOTYPE
+                {isHardwareOnline ? 'STM32 + ESP32 LIVE' : 'ONLINE / PROTOTYPE'}
               </span>
             </div>
             <p className="text-xs text-slate-500 font-medium flex items-center gap-1.5 mt-0.5">
@@ -103,6 +130,17 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Live Clock & Interactive Simulation Bar */}
         <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+          {/* Cloud Bridge Indicator */}
+          <div 
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-mono bg-slate-50 border-slate-200 text-slate-700 shadow-xs"
+            title="HiveMQ WebSocket Cloud Broker connection state"
+          >
+            <Radio className={`w-3.5 h-3.5 ${isHardwareOnline ? 'text-emerald-600 animate-pulse' : isMqttConnected ? 'text-sky-600' : 'text-slate-400'}`} />
+            <span className="text-[11px] font-semibold">
+              {isHardwareOnline ? 'Hardware Stream' : isMqttConnected ? 'Cloud Ready' : 'Cloud Offline'}
+            </span>
+          </div>
+
           {/* Live Date & Time */}
           <div className="hidden lg:flex items-center gap-2 px-3 py-1.5 bg-slate-100/80 rounded-lg border border-slate-200 text-xs font-mono text-slate-700">
             <Clock className="w-3.5 h-3.5 text-slate-500" />

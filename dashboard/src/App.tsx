@@ -38,6 +38,9 @@ export const App: React.FC = () => {
     handleHomePosition,
     handleEmergencyStop,
     handleToggleFault,
+    isHardwareOnline,
+    isMqttConnected,
+    sendCommand,
   } = useSolarSimulation();
 
   return (
@@ -52,6 +55,8 @@ export const App: React.FC = () => {
         onChangeSpeed={setSimSpeed}
         onOpenConcept={() => setIsConceptOpen(true)}
         isEmergencyStopped={isEmergencyStopped}
+        isHardwareOnline={isHardwareOnline}
+        isMqttConnected={isMqttConnected}
       />
 
       {/* Main Content Area */}
@@ -96,7 +101,7 @@ export const App: React.FC = () => {
           />
         </div>
 
-        {/* 5. Control Simulation Panel */}
+        {/* 5. Control Panel (Bidirectional Physical Hardware Link) */}
         <ControlPanel
           trackingMode={trackingMode}
           onToggleAuto={handleAutoToggle}
@@ -105,6 +110,8 @@ export const App: React.FC = () => {
           onEmergencyStop={handleEmergencyStop}
           isEmergencyStopped={isEmergencyStopped}
           actualAngle={tracking.actualShaftAngle}
+          isHardwareOnline={isHardwareOnline}
+          onZeroCurrent={() => sendCommand('ZERO_CURR')}
         />
 
         {/* 6. Energy Harvesting Analytics & Net Gain Comparison */}

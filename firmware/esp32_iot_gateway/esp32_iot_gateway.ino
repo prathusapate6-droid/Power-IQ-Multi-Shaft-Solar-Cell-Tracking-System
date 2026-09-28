@@ -29,6 +29,7 @@
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
 #include <ArduinoJson.h>
+#include <PubSubClient.h>
 
 // =============================================================================
 // 1. NETWORK & CLOUD CONFIGURATION (UPDATE YOUR CREDENTIALS HERE!)
@@ -39,6 +40,18 @@ const char* WIFI_PASSWORD = "SolarTracking2026";  // Your WiFi Password
 // Fallback SoftAP if WiFi router is unavailable
 const char* AP_SSID       = "POWER_IQ_GATEWAY";   // Hotspot Name (Default IP: 192.168.4.1)
 const char* AP_PASSWORD   = "poweriq123";
+
+// HiveMQ Public Cloud MQTT Broker Configuration (Netlify Dashboard Bridge)
+const char* MQTT_BROKER           = "broker.hivemq.com";
+const int   MQTT_PORT             = 1883;
+const char* MQTT_TOPIC_TELEMETRY  = "power_iq_sih2026/telemetry";
+const char* MQTT_TOPIC_COMMANDS   = "power_iq_sih2026/commands";
+
+WiFiClient espClient;
+PubSubClient mqttClient(espClient);
+
+unsigned long lastMqttReconnectMs = 0;
+unsigned long lastMqttPublishMs   = 0;
 
 // Firebase Realtime Database Configuration (Set true when Firebase is active)
 bool ENABLE_FIREBASE      = false; 
@@ -88,6 +101,9 @@ void parseIncomingStm32Packet(const String& jsonLine);
 void updateLcdDisplay();
 void pushTelemetryToFirebase();
 void sendCommandToStm32(const String& cmd);
+void mqttCallback(char* topic, byte* payload, unsigned int length);
+void reconnectMqtt();
+void publishTelemetryMqtt();
 
 // =============================================================================
 // SETUP
@@ -175,12 +191,31 @@ void setup() {
     }
   }
 
-  // 5. Setup Web Server REST Endpoints
+  // 5. Setup Web Server REST Endpoints with CORS Support
+  server.enableCORS(true);
   server.on("/", HTTP_GET, handleRoot);
   server.on("/api/telemetry", HTTP_GET, handleGetTelemetry);
   server.on("/api/command", HTTP_GET, handleSendCommand);
+  server.on("/api/telemetry", HTTP_OPTIONS, []() {
+    server.sendHeader("Access-Control-Allow-Origin", "*");
+    server.sendHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+    server.sendHeader("Access-Control-Allow-Headers", "*");
+    server.send(204);
+  });
+  server.on("/api/command", HTTP_OPTIONS, []() {
+    server.sendHeader("Access-Control-Allow-Origin", "*");
+    server.sendHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+    server.sendHeader("Access-Control-Allow-Headers", "*");
+    server.send(204);
+  });
   server.begin();
   Serial.println("[HTTP] Web Server started on port 80.");
+
+  // 6. Setup MQTT HiveMQ Cloud Broker (Direct Netlify Web Dashboard Bridge)
+  mqttClient.setServer(MQTT_BROKER, MQTT_PORT);
+  mqttClient.setCallback(mqttCallback);
+  mqttClient.setBufferSize(512);
+  Serial.println("[MQTT] HiveMQ Cloud client initialized (broker.hivemq.com:1883).");
   Serial.println("[READY] ESP32 Gateway Active! Listening for STM32 telemetry...\n");
 }
 
@@ -216,13 +251,26 @@ void loop() {
     updateLcdDisplay();
   }
 
-  // 4. Periodic Firebase Cloud Uplink (every 3000ms)
+  // 4. MQTT Cloud Uplink & Non-blocking Connection (every 1000ms)
+  if (WiFi.status() == WL_CONNECTED) {
+    if (!mqttClient.connected()) {
+      reconnectMqtt();
+    } else {
+      mqttClient.loop();
+      if (now - lastMqttPublishMs >= 1000) {
+        lastMqttPublishMs = now;
+        publishTelemetryMqtt();
+      }
+    }
+  }
+
+  // 5. Periodic Firebase Cloud Uplink (every 3000ms)
   if (ENABLE_FIREBASE && (now - lastFirebasePushMs >= 3000)) {
     lastFirebasePushMs = now;
     pushTelemetryToFirebase();
   }
 
-  // 5. Check STM32 Liveness (timeout after 3.5s)
+  // 6. Check STM32 Liveness (timeout after 3.5s)
   if (now - liveData.lastUpdateMs > 3500) {
     liveData.isStm32Online = false;
   }
@@ -335,6 +383,9 @@ void sendCommandToStm32(const String& cmd) {
 // HTTP REST HANDLERS
 // =============================================================================
 void handleGetTelemetry() {
+  server.sendHeader("Access-Control-Allow-Origin", "*");
+  server.sendHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  server.sendHeader("Access-Control-Allow-Headers", "*");
   StaticJsonDocument<384> doc;
   doc["angle"]          = liveData.angle;
   doc["mode"]           = liveData.mode;
@@ -354,6 +405,9 @@ void handleGetTelemetry() {
 }
 
 void handleSendCommand() {
+  server.sendHeader("Access-Control-Allow-Origin", "*");
+  server.sendHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  server.sendHeader("Access-Control-Allow-Headers", "*");
   if (!server.hasArg("cmd")) {
     server.send(400, "text/plain", "Missing 'cmd' parameter");
     return;
@@ -361,6 +415,60 @@ void handleSendCommand() {
   String cmd = server.arg("cmd");
   sendCommandToStm32(cmd);
   server.send(200, "text/plain", "OK: Command dispatched to STM32");
+}
+
+// =============================================================================
+// MQTT CLOUD CALLBACK & FUNCTIONS (NETLIFY BRIDGE)
+// =============================================================================
+void mqttCallback(char* topic, byte* payload, unsigned int length) {
+  String cmd = "";
+  for (unsigned int i = 0; i < length; i++) {
+    cmd += (char)payload[i];
+  }
+  cmd.trim();
+  Serial.printf("[MQTT-CMD] Netlify Dashboard Command: '%s'\n", cmd.c_str());
+  if (cmd.length() > 0) {
+    sendCommandToStm32(cmd);
+  }
+}
+
+void reconnectMqtt() {
+  if (WiFi.status() != WL_CONNECTED) return;
+  if (millis() - lastMqttReconnectMs < 4000) return;
+  lastMqttReconnectMs = millis();
+
+  String clientId = "POWER_IQ_ESP32_" + String((uint32_t)ESP.getEfuseMac(), HEX);
+  Serial.print("[MQTT] Connecting to broker.hivemq.com:1883... ");
+  if (mqttClient.connect(clientId.c_str())) {
+    Serial.println("CONNECTED!");
+    mqttClient.subscribe(MQTT_TOPIC_COMMANDS);
+    Serial.printf("[MQTT] Subscribed to topic: %s\n", MQTT_TOPIC_COMMANDS);
+    digitalWrite(PIN_WIFI_LED, HIGH);
+  } else {
+    Serial.printf("FAILED (rc=%d), will retry\n", mqttClient.state());
+  }
+}
+
+void publishTelemetryMqtt() {
+  if (!mqttClient.connected()) return;
+
+  StaticJsonDocument<384> doc;
+  doc["angle"]         = liveData.angle;
+  doc["mode"]          = liveData.mode;
+  doc["homed"]         = liveData.homed;
+  doc["solar_voltage"] = liveData.solarVoltage;
+  doc["solar_current"] = liveData.solarCurrent;
+  doc["solar_power"]   = liveData.solarPower;
+  doc["batt_voltage"]  = liveData.battVoltage;
+  doc["temperature"]   = liveData.temperature;
+  doc["humidity"]      = liveData.humidity;
+  doc["energy_wh"]     = liveData.energyYieldWh;
+  doc["stm32_online"]  = liveData.isStm32Online;
+  doc["uptime"]        = millis() / 1000;
+
+  char buf[384];
+  size_t len = serializeJson(doc, buf, sizeof(buf));
+  mqttClient.publish(MQTT_TOPIC_TELEMETRY, buf, len);
 }
 
 // =============================================================================

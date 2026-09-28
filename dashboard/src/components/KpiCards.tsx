@@ -33,20 +33,30 @@ export const KpiCards: React.FC<KpiCardsProps> = ({
             <SunMedium className="w-3.5 h-3.5 text-amber-500" />
             Solar Output
           </span>
-          <span className="text-[10px] bg-emerald-50 text-emerald-700 px-1.5 py-0.2 rounded font-mono font-bold">
-            LIVE
+          <span className={`text-[10px] px-1.5 py-0.2 rounded font-mono font-bold ${
+            solar.isHardwareOnline ? 'bg-emerald-100 text-emerald-800' : 'bg-emerald-50 text-emerald-700'
+          }`}>
+            {solar.isHardwareOnline ? 'HARDWARE' : 'LIVE'}
           </span>
         </div>
         <div className="flex items-baseline gap-1">
           <span className="text-2xl sm:text-3xl font-black tracking-tight text-slate-900 font-mono">
-            {solar.powerKw.toFixed(2)}
+            {solar.isHardwareOnline ? (solar.powerKw * 1000).toFixed(1) : solar.powerKw.toFixed(2)}
           </span>
-          <span className="text-sm font-bold text-slate-500">kW</span>
+          <span className="text-sm font-bold text-slate-500">
+            {solar.isHardwareOnline ? 'W' : 'kW'}
+          </span>
         </div>
         <div className="mt-2 text-[11px] text-slate-500 flex items-center justify-between border-t border-slate-100 pt-1.5 font-mono">
-          <span>{solar.voltageV} V</span>
+          <span>{solar.voltageV.toFixed(1)} V</span>
           <span>•</span>
-          <span>{solar.currentA} A</span>
+          <span>{solar.currentA.toFixed(2)} A</span>
+          {solar.battVoltageV !== undefined && (
+            <>
+              <span>•</span>
+              <span className="text-sky-600 font-semibold" title="Battery Voltage">Bat: {solar.battVoltageV.toFixed(1)}V</span>
+            </>
+          )}
         </div>
         <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-amber-400 to-emerald-500"></div>
       </div>
@@ -59,14 +69,16 @@ export const KpiCards: React.FC<KpiCardsProps> = ({
             Energy Today
           </span>
           <span className="text-[10px] text-emerald-600 font-bold bg-emerald-50 px-1 rounded">
-            +30% Net
+            {solar.isHardwareOnline ? 'CUMULATIVE' : '+30% Net'}
           </span>
         </div>
         <div className="flex items-baseline gap-1">
           <span className="text-2xl sm:text-3xl font-black tracking-tight text-emerald-700 font-mono">
-            {solar.energyTodayKwh.toFixed(1)}
+            {solar.energyTodayKwh.toFixed(2)}
           </span>
-          <span className="text-sm font-bold text-slate-500">kWh</span>
+          <span className="text-sm font-bold text-slate-500">
+            {solar.isHardwareOnline ? 'Wh' : 'kWh'}
+          </span>
         </div>
         <div className="mt-2 text-[11px] text-slate-500 flex items-center justify-between border-t border-slate-100 pt-1.5 font-mono">
           <span>Fixed: 11.2 kWh</span>
@@ -88,7 +100,7 @@ export const KpiCards: React.FC<KpiCardsProps> = ({
         </div>
         <div className="flex items-baseline gap-1">
           <span className="text-2xl sm:text-3xl font-black tracking-tight text-slate-900 font-mono">
-            {tracking.actualShaftAngle}°
+            {tracking.actualShaftAngle > 0 ? `+${tracking.actualShaftAngle}` : tracking.actualShaftAngle}°
           </span>
           <span className="text-xs font-semibold text-slate-400">tilt</span>
         </div>

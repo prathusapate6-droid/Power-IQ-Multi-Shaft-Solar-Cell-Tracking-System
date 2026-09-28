@@ -7,7 +7,8 @@ import {
   OctagonAlert, 
   Hand, 
   Compass, 
-  ShieldCheck
+  ShieldCheck,
+  Zap
 } from 'lucide-react';
 import type { TrackingMode } from '../types/dashboard';
 
@@ -19,6 +20,8 @@ interface ControlPanelProps {
   onEmergencyStop: () => void;
   isEmergencyStopped: boolean;
   actualAngle: number;
+  isHardwareOnline?: boolean;
+  onZeroCurrent?: () => void;
 }
 
 export const ControlPanel: React.FC<ControlPanelProps> = ({
@@ -29,6 +32,8 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   onEmergencyStop,
   isEmergencyStopped,
   actualAngle,
+  isHardwareOnline = false,
+  onZeroCurrent,
 }) => {
   return (
     <div className="bg-white rounded-xl p-5 border border-slate-200/90 shadow-xs mb-6">
@@ -40,13 +45,19 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
           </div>
           <div>
             <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
-              <span>System Actuation & Control Simulation</span>
-              <span className="text-[10px] font-mono uppercase bg-amber-100 text-amber-900 px-2 py-0.5 rounded border border-amber-300 font-bold">
-                Simulation Only
+              <span>System Actuation & Control Panel</span>
+              <span className={`text-[10px] font-mono uppercase px-2 py-0.5 rounded font-bold border ${
+                isHardwareOnline 
+                  ? 'bg-emerald-100 text-emerald-900 border-emerald-300' 
+                  : 'bg-amber-100 text-amber-900 border-amber-300'
+              }`}>
+                {isHardwareOnline ? '⚡ Live Hardware Control' : 'Simulation Mode'}
               </span>
             </h2>
             <p className="text-xs text-slate-500">
-              Interactive test interface simulating STM32 stepper motor driver commands
+              {isHardwareOnline 
+                ? 'Bidirectional cloud telemetry & control linked to physical STM32 stepper motor driver'
+                : 'Interactive test interface simulating STM32 stepper motor driver commands'}
             </p>
           </div>
         </div>
@@ -131,28 +142,42 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
             <Home className="w-4 h-4 text-amber-600" />
             <span className="text-xs font-bold">Home (0° Stow)</span>
           </div>
-          <span className="text-[10px] text-slate-500 font-mono">Horizontal Stow</span>
+          <span className="text-[10px] text-slate-500 font-mono">Hall Zero Datum</span>
         </button>
 
-        {/* Emergency Stop Button */}
-        <button
-          onClick={onEmergencyStop}
-          className={`flex flex-col items-center justify-center p-3 rounded-xl border text-center transition shadow-xs ${
-            isEmergencyStopped
-              ? 'bg-rose-600 border-rose-700 text-white animate-pulse'
-              : 'bg-white border-rose-200 text-rose-700 hover:bg-rose-50'
-          }`}
-        >
-          <div className="flex items-center gap-1 mb-1">
-            <OctagonAlert className="w-4 h-4 text-rose-600" />
-            <span className="text-xs font-bold">
-              {isEmergencyStopped ? 'E-STOP ACTIVE' : 'Emergency Stop'}
+        {/* Zero Current or Emergency Stop */}
+        {isHardwareOnline && onZeroCurrent ? (
+          <button
+            onClick={onZeroCurrent}
+            className="flex flex-col items-center justify-center p-3 rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 transition shadow-xs"
+            title="Auto-zero current sensor offset to 0.00 A"
+          >
+            <div className="flex items-center gap-1 mb-1">
+              <Zap className="w-4 h-4 text-emerald-600" />
+              <span className="text-xs font-bold">Zero Current</span>
+            </div>
+            <span className="text-[10px] text-emerald-600 font-mono">Calibrate 0.00 A</span>
+          </button>
+        ) : (
+          <button
+            onClick={onEmergencyStop}
+            className={`flex flex-col items-center justify-center p-3 rounded-xl border text-center transition shadow-xs ${
+              isEmergencyStopped
+                ? 'bg-rose-600 border-rose-700 text-white animate-pulse'
+                : 'bg-white border-rose-200 text-rose-700 hover:bg-rose-50'
+            }`}
+          >
+            <div className="flex items-center gap-1 mb-1">
+              <OctagonAlert className="w-4 h-4 text-rose-600" />
+              <span className="text-xs font-bold">
+                {isEmergencyStopped ? 'E-STOP ACTIVE' : 'Emergency Stop'}
+              </span>
+            </div>
+            <span className={`text-[10px] ${isEmergencyStopped ? 'text-rose-100' : 'text-rose-500'}`}>
+              {isEmergencyStopped ? 'Click to Reset' : 'Disable Stepper'}
             </span>
-          </div>
-          <span className={`text-[10px] ${isEmergencyStopped ? 'text-rose-100' : 'text-rose-500'}`}>
-            {isEmergencyStopped ? 'Click to Reset' : 'Disable Stepper Driver'}
-          </span>
-        </button>
+          </button>
+        )}
       </div>
 
       <div className="mt-3 pt-2.5 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
@@ -160,7 +185,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
           <ShieldCheck className="w-3.5 h-3.5 text-slate-400" />
           <span>Intermittent Tracking Mode activates motor for only 2–3 seconds every few minutes, minimizing parasitic motor energy consumption.</span>
         </span>
-        <span className="font-mono text-slate-400 hidden sm:inline">Actuator: High-Torque Bipolar Stepper (1.8°/step, 16x microstep)</span>
+        <span className="font-mono text-slate-400 hidden sm:inline">Actuator: High-Torque Stepper + Worm Transmission</span>
       </div>
     </div>
   );
