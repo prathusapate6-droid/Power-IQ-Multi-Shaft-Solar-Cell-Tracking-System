@@ -111,9 +111,14 @@ bool lastBtnState = HIGH;
 unsigned long lastBtnDebounceMs = 0;
 float lastPotTargetAngle = 0.0f;
 
+int lastTopVal  = 0;
+int lastBotVal  = 0;
+int lastDiffVal = 0;
+const char* lastTrackingStatus = "INITIALIZING";
+
 // ---------------- DUAL-SERIAL OUTPUT HELPERS ----------------
-// Serial1: Human-readable PC Telemetry on PA9/PA10
-// Serial2: High-speed JSON Stream to ESP32 on PA2/PA3
+// Serial1: Human-readable PC Telemetry on PA9/PA10 @ 115200 Baud
+// Serial2: High-speed JSON Stream to ESP32 on PA2/PA3 @ 115200 Baud
 #ifdef SERIAL_USB
   #define HAS_USB_SERIAL 1
 #else
@@ -205,7 +210,7 @@ float parseCustomFloat(const char* p) {
   return sign * val;
 }
 
-// ---------------- DIRECT DHT11 BITBANG ----------------
+// ---------------- DIRECT DHT11 BITBANG WITH INTERRUPT PROTECTION ----------------
 bool readDHT11(uint8_t pin, float &temp, float &humidity) {
   uint8_t data[5] = {0, 0, 0, 0, 0};
   pinMode(pin, OUTPUT);
@@ -222,15 +227,27 @@ bool readDHT11(uint8_t pin, float &temp, float &humidity) {
   timeout = micros();
   while (digitalRead(pin) == HIGH) { if (micros() - timeout > 100) return false; }
 
+  noInterrupts();
   for (int i = 0; i < 40; i++) {
     timeout = micros();
-    while (digitalRead(pin) == LOW) { if (micros() - timeout > 100) return false; }
+    while (digitalRead(pin) == LOW) {
+      if (micros() - timeout > 100) {
+        interrupts();
+        return false;
+      }
+    }
     unsigned long t = micros();
-    while (digitalRead(pin) == HIGH) { if (micros() - timeout > 150) return false; }
+    while (digitalRead(pin) == HIGH) {
+      if (micros() - timeout > 150) {
+        interrupts();
+        return false;
+      }
+    }
     if ((micros() - t) > 40) {
       data[i / 8] |= (1 << (7 - (i % 8)));
     }
   }
+  interrupts();
 
   if (data[4] == ((data[0] + data[1] + data[2] + data[3]) & 0xFF)) {
     if (data[0] != 0 || data[2] != 0) {
@@ -254,18 +271,18 @@ void calibrateCurrentSensor();
 void handleManualControls();
 void processSerialInput();
 void executeSunTracking();
-void printTelemetry(int topVal, int botVal, int diff, const char* stateStr);
+void printTelemetry();
 void printHelp();
 
 // =============================================================================
 // SETUP
 // =============================================================================
 void setup() {
-  // 1. Initialize Dual Serial Channels @ 9600 Baud
-  Serial1.begin(9600); // PC Flashing & Telemetry on PA9/PA10
-  Serial2.begin(9600); // ESP32 Telemetry Link on PA2/PA3
+  // 1. Initialize Dual Serial Channels @ 115200 Baud (High-speed, zero buffer overrun)
+  Serial1.begin(115200); // PC Flashing & Telemetry on PA9/PA10 @ 115200 Baud
+  Serial2.begin(115200); // ESP32 Telemetry Link on PA2/PA3 @ 115200 Baud
 #if HAS_USB_SERIAL
-  Serial.begin(9600);
+  Serial.begin(115200);
 #endif
 
   // 2. Hardware Pins Configuration
@@ -297,17 +314,15 @@ void setup() {
   }
 
   printlnAll();
-  printlnAll(F("========================================================"));
-  printlnAll(F(" POWER IQ — MULTI-SHAFT SOLAR CELL TRACKING SYSTEM      "));
-  printlnAll(F(" Platform     : STM32F103C8T6 ARM Cortex-M3 (72 MHz)    "));
-  printlnAll(F(" Ports        : USART1 (PA9/10 PC) + USART2 (PA2/3 ESP) "));
-  printlnAll(F(" Manual Ctrl  : Button PB12 (Mode) + 10k Pot PB0 (Knob) "));
-  printlnAll(F(" Solar Power  : Voltage (PA6) + Current (PA7) -> Watts   "));
-  printlnAll(F(" Battery Volt : Scaled Divider on PB1                   "));
-  printlnAll(F(" Calibration  : 10.556 steps/deg | Angle: -40 to +40 deg"));
-  printAll(F(" Speeds       : Tracking: ")); printAll(TRACKING_SPEED_US);
-  printAll(F(" us | ZERO Homing: ")); printAll(ZERO_HOMING_SPEED_US); printlnAll(F(" us"));
-  printlnAll(F("========================================================"));
+  printlnAll(F("================================================================================"));
+  printlnAll(F(" POWER IQ — MULTI-SHAFT SOLAR CELL TRACKING SYSTEM (SIH 2026)                   "));
+  printlnAll(F(" Platform     : STM32F103C8T6 ARM Cortex-M3 (72 MHz) @ 115200 Baud              "));
+  printlnAll(F(" Ports        : USART1 (PA9/10 PC Debug) + USART2 (PA2/3 ESP32 Gateway)        "));
+  printlnAll(F(" Manual Ctrl  : Button PB12 (Mode) + 10k Pot PB0 (Knob)                        "));
+  printlnAll(F(" Solar Power  : Voltage (PA6) + Current (PA7 ACS712) -> Watts                   "));
+  printlnAll(F(" Calibration  : 10.556 steps/deg | Slat Angle Limit: -40 to +40 deg             "));
+  printlnAll(F("================================================================================"));
+  Serial1.flush();
 
   // 3. Auto-calibrate Current Sensor Zero Baseline
   calibrateCurrentSensor();
@@ -320,7 +335,8 @@ void setup() {
   findZeroHomeDatum();
 
   digitalWrite(PIN_STATUS_LED, HIGH); // LED OFF (Ready)
-  printlnAll(F("[SYSTEM READY] Tracking ACTIVE. Telemetry streaming below.\n"));
+  printlnAll(F("[SYSTEM READY] Tracking ACTIVE @ 115200 Baud. Telemetry streaming below.\n"));
+  Serial1.flush();
 }
 
 // =============================================================================
@@ -346,12 +362,10 @@ void loop() {
     }
   }
 
-  // 5. Periodic 1-Second Telemetry (PC & ESP32 JSON Stream)
+  // 5. Periodic 1-Second Telemetry (PC Debug & ESP32 JSON Stream)
   if (now - lastTelemetryTime >= 1000) {
     lastTelemetryTime = now;
-    if (!isAutoTracking) {
-      printTelemetry(0, 0, 0, "MANUAL (Potentiometer Active)");
-    }
+    printTelemetry();
     sendEsp32JsonTelemetry();
   }
 
@@ -380,12 +394,14 @@ void handleManualControls() {
       printAll(F(">>> [MODE SWITCH] Mode changed by hardware button to: "));
       printlnAll(isAutoTracking ? F("AUTO (LDR Sun Tracking)") : F("MANUAL (Potentiometer Knob)"));
       printlnAll();
+      Serial1.flush();
     }
   }
   lastBtnState = reading;
 
   // 2. In MANUAL mode, potentiometer on PB0 sets slat angle directly
   if (!isAutoTracking) {
+    lastTrackingStatus = "MANUAL (Potentiometer Control)";
     int rawPot = analogRead(PIN_POT_MANUAL);
     // Transfer function: 0 -> -40 deg, 2048 -> 0 deg, 4095 -> +40 deg
     float potAngle = ((rawPot / 4095.0f) * 80.0f) - 40.0f;
@@ -535,16 +551,21 @@ void findZeroHomeDatum() {
 
     currentAngle = 0.0f;
     isHomed = true;
+    lastTrackingStatus = "ZERO DATUM LOCKED (0.0 deg)";
     printlnAll(F("[HOMING] Magnet centered successfully! ZERO Position LOCKED at 0.0 deg."));
+    Serial1.flush();
   } else {
     currentAngle = 0.0f;
     isHomed = true;
+    lastTrackingStatus = "ZERO SYNCHRONIZED (0.0 deg)";
     printlnAll(F("[WARN] Hall sensor not reached. Position synchronized to 0.0 deg."));
+    Serial1.flush();
   }
 
   motorOff();
   digitalWrite(PIN_STATUS_LED, HIGH);
-  printlnAll(F("--------------------------------------------------------"));
+  printlnAll(F("--------------------------------------------------------------------------------"));
+  Serial1.flush();
 }
 
 // =============================================================================
@@ -584,7 +605,9 @@ void executeSunTracking() {
   int diff = avgTop - avgBottom;
   if (invertMotorDir) diff = -diff;
 
-  const char* trackingState = "BALANCED";
+  lastTopVal  = avgTop;
+  lastBotVal  = avgBottom;
+  lastDiffVal = diff;
 
   if (maxLight < nightDarkThreshold) {
     if (darknessStartMs == 0) darknessStartMs = millis();
@@ -592,84 +615,74 @@ void executeSunTracking() {
 
     if (darkDuration >= NIGHT_PARK_DELAY_MS) {
       if (fabs(currentAngle) > 0.5f) {
-        trackingState = "NIGHT CONFIRMED (8s) -> Parking at 0.0 deg";
+        lastTrackingStatus = "NIGHT CONFIRMED -> Parking 0.0 deg";
         moveToAngle(0.0f, TRACKING_SPEED_US);
       } else {
-        trackingState = "NIGHT SLEEP (Parked at 0.0 deg, 0W Coils OFF)";
+        lastTrackingStatus = "NIGHT SLEEP (0.0 deg, 0W Coils OFF)";
         motorOff();
       }
     } else {
-      trackingState = "LOW LIGHT -> HOLDING POSITION (8s Timer)";
+      lastTrackingStatus = "LOW LIGHT -> HOLDING (8s Timer)";
       motorOff();
     }
   } else {
     darknessStartMs = 0;
 
     if (abs(diff) <= deadbandThreshold) {
-      trackingState = "BALANCED -> SUN LOCKED (100% Solar Yield)";
+      lastTrackingStatus = "SUN BALANCED (Optimum Yield)";
       motorOff();
     }
     else if (diff > deadbandThreshold) {
       float nextAngle = currentAngle + 1.0f;
       if (nextAngle <= MAX_ANGLE) {
-        trackingState = "SUN ON TOP (PA0+PA1) -> Moving (+)";
+        lastTrackingStatus = "TRACKING SUN (+)";
         moveToAngle(nextAngle, TRACKING_SPEED_US);
       } else {
-        trackingState = "LIMIT REACHED (+40.0 deg MAX)";
+        lastTrackingStatus = "LIMIT REACHED (+40 deg MAX)";
       }
     }
     else {
       float nextAngle = currentAngle - 1.0f;
       if (nextAngle >= MIN_ANGLE) {
-        trackingState = "SUN ON BOTTOM (PA4+PA5) -> Moving (-)";
+        lastTrackingStatus = "TRACKING SUN (-)";
         moveToAngle(nextAngle, TRACKING_SPEED_US);
       } else {
-        trackingState = "LIMIT REACHED (-40.0 deg MIN)";
+        lastTrackingStatus = "LIMIT REACHED (-40 deg MIN)";
       }
     }
-  }
-
-  // Print Telemetry every 2 cycles (every 1 second)
-  if (frameCount % 2 == 0) {
-    printTelemetry(avgTop, avgBottom, diff, trackingState);
   }
 }
 
 // =============================================================================
-// COMPREHENSIVE TELEMETRY STREAM
+// STREAMLINED HIGH-SPEED TELEMETRY (CLEAN, JITTER-FREE @ 115200 BAUD)
 // =============================================================================
-void printTelemetry(int topVal, int botVal, int diff, const char* stateStr) {
-  printlnAll(F("--------------------------------------------------------"));
-  printAll(F(" [SLAT ANGLE]   Angle: "));
+void printTelemetry() {
+  printlnAll(F("--------------------------------------------------------------------------------"));
+  printAll(F("[POWER-IQ] Ang: "));
   if (currentAngle >= 0) printAll(F("+"));
   printAll(currentAngle, 1);
-  printAll(F(" deg | Mode: "));
-  printAll(isAutoTracking ? F("AUTO (LDR)") : F("MANUAL (POT)"));
-  printAll(F(" | Homed: "));
-  printlnAll(isHomed ? F("YES (0.0 ZERO)") : F("NO"));
+  printAll(F(" deg | Vpv: ")); printAll(solarVoltage, 2);
+  printAll(F("V | Ipv: ")); printAll(solarCurrent, 2);
+  printAll(F("A | Ppv: ")); printAll(solarPower, 2);
+  printAll(F("W | Bat: ")); printAll(battVoltage, 2); printlnAll(F("V"));
 
-  printAll(F(" [SUN SENSORS]  TOP: ")); printAll(topVal);
-  printAll(F(" | BOT: ")); printAll(botVal);
+  printAll(F("           LDR Top: ")); printAll(lastTopVal);
+  printAll(F(" | Bot: ")); printAll(lastBotVal);
   printAll(F(" | Diff: "));
-  if (diff >= 0) printAll(F("+"));
-  printAll(diff);
-  printAll(F(" (Deadband: +/-")); printAll(deadbandThreshold); printlnAll(F(")"));
+  if (lastDiffVal >= 0) printAll(F("+"));
+  printAll(lastDiffVal);
+  printAll(F(" (DB: +/-")); printAll(deadbandThreshold);
+  printAll(F(") | Temp: ")); printAll(currentTemp, 1);
+  printAll(F("C | Hum: ")); printAll(currentHumidity, 1); printlnAll(F("%"));
 
-  printAll(F(" [SOLAR POWER]  Voltage: ")); printAll(solarVoltage, 2); printAll(F(" V"));
-  printAll(F(" | Current: ")); printAll(solarCurrent, 2); printAll(F(" A"));
-  printAll(F(" | Power: ")); printAll(solarPower, 2); printlnAll(F(" W"));
-
-  printAll(F(" [BATTERY]      Voltage: ")); printAll(battVoltage, 2); printlnAll(F(" V"));
-
-  printAll(F(" [ENVIRONMENT]  Temp: ")); printAll(currentTemp, 1); printAll(F(" C"));
-  printAll(F(" | Humidity: ")); printAll(currentHumidity, 1); printlnAll(F(" %"));
-
-  printAll(F(" [HARDWARE]     Hall: "));
-  printAll(digitalRead(PIN_HALL_HOME) == LOW ? F("MAGNET DETECTED") : F("OPEN"));
-  printAll(F(" | Motor: 0W Silent Idle")); printlnAll();
-
-  printAll(F(" [STATUS]       ")); printlnAll(stateStr);
-  printlnAll(F("--------------------------------------------------------"));
+  printAll(F("           Mode: "));
+  printAll(isAutoTracking ? F("AUTO (LDR)") : F("MANUAL (POT)"));
+  printAll(F(" | Zero: "));
+  printAll(isHomed ? F("LOCKED (0.0 deg)") : F("HOMING"));
+  printAll(F(" | Status: "));
+  printlnAll(lastTrackingStatus);
+  printlnAll(F("--------------------------------------------------------------------------------"));
+  Serial1.flush();
 }
 
 // =============================================================================
@@ -705,7 +718,7 @@ void moveToAngle(float targetAngle, int speedUs) {
 
 void stepPulse(int delayUs) {
   digitalWrite(PIN_STEP, HIGH);
-  delayMicroseconds(delayUs);
+  delayMicroseconds(5); // Minimum 1us required by A4988 datasheet
   digitalWrite(PIN_STEP, LOW);
   delayMicroseconds(delayUs);
 }

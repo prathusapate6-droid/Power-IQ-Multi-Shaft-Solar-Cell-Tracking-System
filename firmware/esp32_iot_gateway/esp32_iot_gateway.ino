@@ -104,9 +104,9 @@ void setup() {
   Serial.println(" Smart India Hackathon 2026 | Lead: Prathamesh Sapate   ");
   Serial.println("========================================================");
 
-  // 2. Hardware UART2 link to STM32 Blue Pill @ 9600 Baud
-  Serial2.begin(9600, SERIAL_8N1, PIN_RX2, PIN_TX2);
-  Serial.println("[UART] Connected to STM32 on GPIO 16 (RX2) and GPIO 17 (TX2).");
+  // 2. Hardware UART2 link to STM32 Blue Pill @ 115200 Baud
+  Serial2.begin(115200, SERIAL_8N1, PIN_RX2, PIN_TX2);
+  Serial.println("[UART] Connected to STM32 on GPIO 16 (RX2) and GPIO 17 (TX2) @ 115200 Baud.");
 
   // 3. Initialize I2C Bus & LCD (0x27)
   Wire.begin(PIN_SDA, PIN_SCL);
