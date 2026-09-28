@@ -125,31 +125,38 @@ void loop() {
   int valBL = rawBL / 4;
   int valBR = rawBR / 4;
 
-  // 2. Calculate Sector Averages
-  int avgLeft   = (valTL + valBL) / 2;
-  int avgRight  = (valTR + valBR) / 2;
-  int avgTop    = (valTL + valTR) / 2;
-  int avgBottom = (valBL + valBR) / 2;
+  // 2. Invert ADC Readings (Active-LOW: 4095 = Pitch Dark, ~600 = Direct Sunlight)
+  int lightTL = ADC_RESOLUTION - valTL;
+  int lightTR = ADC_RESOLUTION - valTR;
+  int lightBL = ADC_RESOLUTION - valBL;
+  int lightBR = ADC_RESOLUTION - valBR;
+
+  // 3. Calculate Sector Light Intensities
+  int avgLeft   = (lightTL + lightBL) / 2;
+  int avgRight  = (lightTR + lightBR) / 2;
+  int avgTop    = (lightTL + lightTR) / 2;
+  int avgBottom = (lightBL + lightBR) / 2;
   int avgTotal  = (avgLeft + avgRight) / 2;
 
-  // 3. Calculate Differential Tracking Errors
-  int errorHorizontal = avgLeft - avgRight; // Positive = Sun is on Left, Negative = Sun on Right
+  // 4. Calculate Differential Tracking Errors
+  int errorHorizontal = avgLeft - avgRight; // Positive = Sun on Left, Negative = Sun on Right
   int errorVertical   = avgTop - avgBottom; // Positive = Sun is High, Negative = Sun is Low
 
-  // Calculate percentages (0% to 100%)
-  float pctTotal = (avgTotal / ADC_RESOLUTION) * 100.0f;
+  // Calculate percentage (0% = Dark, 100% = Full Light)
+  float pctTotal = (avgTotal / (float)ADC_RESOLUTION) * 100.0f;
 
-  // 4. Determine Sun Tracking Direction
+  // 5. Determine Sun Tracking Direction
   String sunDirection = "";
-  if (avgTotal < NIGHT_THRESHOLD_ADC) {
+  if (avgTotal < 150) {
     sunDirection = "NIGHT / INSUFFICIENT SUNLIGHT (Tracker Sleeps)";
   } else if (abs(errorHorizontal) <= DEADBAND_ADC) {
     sunDirection = "BALANCED (In Deadband -> Solar Shafts Locked)";
   } else if (errorHorizontal > DEADBAND_ADC) {
-    sunDirection = "SUN ON LEFT (West/East) -> Stepper moves Positive (+)";
+    sunDirection = "SUN ON LEFT -> Stepper moves Positive (+)";
   } else {
-    sunDirection = "SUN ON RIGHT (East/West) -> Stepper moves Negative (-)";
+    sunDirection = "SUN ON RIGHT -> Stepper moves Negative (-)";
   }
+
 
   // 5. Print Clean Live Telemetry Dashboard
   printlnOut(F("----------------------------------------------------------"));

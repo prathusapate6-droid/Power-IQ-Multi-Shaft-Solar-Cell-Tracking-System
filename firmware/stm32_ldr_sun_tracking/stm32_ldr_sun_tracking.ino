@@ -230,26 +230,22 @@ void executeSunTracking() {
   int rawBL = sumBL / 4;
   int rawBR = sumBR / 4;
 
-  // 2. Detect 2-LDR vs 4-LDR Mode automatically
-  int leftLight  = 0;
-  int rightLight = 0;
+  // 2. Invert ADC Readings (Active-LOW: 4095 = Pitch Dark, ~600 = Direct Sunlight)
+  int lightTL = 4095 - rawTL;
+  int lightTR = 4095 - rawTR;
+  int lightBL = 4095 - rawBL;
+  int lightBR = 4095 - rawBR;
 
-  if (rawBL < 40 && rawBR < 40) {
-    // 2-LDR Configuration: PA0 = Left/East, PA1 = Right/West
-    leftLight  = rawTL;
-    rightLight = rawTR;
-  } else {
-    // 4-LDR Differential Configuration
-    leftLight  = (rawTL + rawBL) / 2;
-    rightLight = (rawTR + rawBR) / 2;
-  }
+  // 3. Compute Left vs Right Light Intensities
+  int leftLight  = (lightTL + lightBL) / 2;
+  int rightLight = (lightTR + lightBR) / 2;
 
-  // 3. Compute Differential Metrics
   int deltaLight = leftLight - rightLight;
   if (invertDirection) deltaLight = -deltaLight;
 
   int avgLight = (leftLight + rightLight) / 2;
   float intensityPct = (avgLight / 4095.0f) * 100.0f;
+
 
   // 4. Decision Engine
   const char* trackingState = "BALANCED";
