@@ -103,52 +103,53 @@ unsigned long darknessStartMs = 0;
 unsigned long frameCount = 0;
 
 // ---------------- DUAL-SERIAL OUTPUT HELPERS ----------------
-#if defined(Serial1)
-  #define HAS_SERIAL1 1
+// Serial1 is ALWAYS USART1 on pins PA9 (TX) and PA10 (RX)
+#ifdef SERIAL_USB
+  #define HAS_USB_SERIAL 1
 #else
-  #define HAS_SERIAL1 0
+  #define HAS_USB_SERIAL 0
 #endif
 
 template<typename T>
 void printAll(T msg) {
-  Serial.print(msg);
-#if HAS_SERIAL1
   Serial1.print(msg);
+#if HAS_USB_SERIAL
+  Serial.print(msg);
 #endif
 }
 
 template<typename T, typename P>
 void printAll(T msg, P p) {
-  Serial.print(msg, p);
-#if HAS_SERIAL1
   Serial1.print(msg, p);
+#if HAS_USB_SERIAL
+  Serial.print(msg, p);
 #endif
 }
 
 inline void printlnAll() {
-  Serial.println();
-#if HAS_SERIAL1
   Serial1.println();
+#if HAS_USB_SERIAL
+  Serial.println();
 #endif
 }
 
 template<typename T>
 void printlnAll(T msg) {
-  Serial.println(msg);
-#if HAS_SERIAL1
   Serial1.println(msg);
+#if HAS_USB_SERIAL
+  Serial.println(msg);
 #endif
 }
 
 template<typename T, typename P>
 void printlnAll(T msg, P p) {
-  Serial.println(msg, p);
-#if HAS_SERIAL1
   Serial1.println(msg, p);
+#if HAS_USB_SERIAL
+  Serial.println(msg, p);
 #endif
 }
 
-// ---------------- LIGHTWEIGHT FAST FLOAT PARSER (SAVES ~5KB FLASH) ----------------
+// ---------------- LIGHTWEIGHT FAST FLOAT PARSER ----------------
 float parseCustomFloat(const char* p) {
   while (*p == ' ') p++;
   float sign = 1.0f;
@@ -171,7 +172,7 @@ float parseCustomFloat(const char* p) {
   return sign * val;
 }
 
-// ---------------- DIRECT NATIVE DHT11 READER (ZERO BLOAT, SAVES ~6KB FLASH) ----------------
+// ---------------- DIRECT NATIVE DHT11 READER ----------------
 bool readDHT11(uint8_t pin, float &temp, float &humidity) {
   uint8_t data[5] = {0, 0, 0, 0, 0};
   pinMode(pin, OUTPUT);
@@ -226,13 +227,19 @@ void printHelp();
 // SETUP
 // =============================================================================
 void setup() {
-  // 1. Motor Driver Pins
+  // 1. Initialize Serial Communication @ 9600 Baud FIRST!
+  Serial1.begin(9600); // PA9 (TX) and PA10 (RX)
+#if HAS_USB_SERIAL
+  Serial.begin(9600);  // USB CDC Port
+#endif
+
+  // 2. Motor Driver Pins
   pinMode(PIN_STEP, OUTPUT);
   pinMode(PIN_DIR, OUTPUT);
   pinMode(PIN_ENABLE, OUTPUT);
   motorOff(); // Start 100% silent and cool (0W)
 
-  // 2. Status LED & Sensor Pins
+  // 3. Status LED & Sensor Pins
   pinMode(PIN_STATUS_LED, OUTPUT);
   digitalWrite(PIN_STATUS_LED, LOW); // LED ON at boot
 
@@ -243,27 +250,9 @@ void setup() {
   pinMode(PIN_HALL_HOME, INPUT_PULLUP);
   pinMode(PIN_SOLAR_VOLT, INPUT);
 
-  // 3. Initialize I2C Bus & Detect Optional LCD (0x27)
-  Wire.begin();
-  Wire.beginTransmission(0x27);
-  if (Wire.endTransmission() == 0) {
-    isLcdPresent = true;
-    lcd.begin();
-    lcd.backlight();
-    lcd.setCursor(0, 0);
-    lcd.print("POWER IQ TRACKER");
-    lcd.setCursor(0, 1);
-    lcd.print("Calibrating 0.0...");
-  }
+  delay(600);
 
-  // 4. Serial Communication @ 9600 Baud
-  Serial.begin(9600);
-#if HAS_SERIAL1
-  Serial1.begin(9600);
-#endif
-
-  delay(1000);
-
+  // 4. Print Startup Banner immediately to USART1 (PA9) and USB!
   printlnAll();
   printlnAll(F("========================================================"));
   printlnAll(F(" POWER IQ — STM32 SUN TRACKER + VOLT + DHT11 + LCD     "));
@@ -273,12 +262,36 @@ void setup() {
   printAll(F(" us | ZERO Homing Spd: ")); printAll(ZERO_HOMING_SPEED_US); printlnAll(F(" us"));
   printlnAll(F(" Sensors      : 4x LDRs, Hall, DHT11 (PB5), Volt (PA6)  "));
   printlnAll(F("========================================================"));
+  printlnAll(F("[INIT] Initializing peripherals..."));
 
-  // 5. Initial Sensor Readings
+  // 5. Safe I2C Bus Detection (Avoid lockup if LCD absent)
+  pinMode(PB6, INPUT_PULLUP);
+  pinMode(PB7, INPUT_PULLUP);
+  delay(10);
+  if (digitalRead(PB6) == HIGH && digitalRead(PB7) == HIGH) {
+    Wire.begin();
+    Wire.beginTransmission(0x27);
+    if (Wire.endTransmission() == 0) {
+      isLcdPresent = true;
+      lcd.begin();
+      lcd.backlight();
+      lcd.setCursor(0, 0);
+      lcd.print("POWER IQ TRACKER");
+      lcd.setCursor(0, 1);
+      lcd.print("Calibrating 0.0...");
+      printlnAll(F("[I2C] LCD 16x2 Display connected on 0x27."));
+    } else {
+      printlnAll(F("[I2C] No LCD device detected at 0x27."));
+    }
+  } else {
+    printlnAll(F("[I2C] SCL/SDA floating - Skipping LCD initialization."));
+  }
+
+  // 6. Initial Sensor Readings
   updateDhtSensors();
   updateVoltageSensor();
 
-  // 6. GUARANTEED ZERO POSITIONING AT STARTUP
+  // 7. GUARANTEED ZERO POSITIONING AT STARTUP
   findZeroHomeDatum();
 
   digitalWrite(PIN_STATUS_LED, HIGH); // LED OFF (Ready)
@@ -781,20 +794,9 @@ void handleCommand(char* cmd) {
 }
 
 void processSerialInput() {
-  Stream* activeStream = nullptr;
-  if (Serial.available()) {
-    activeStream = &Serial;
-  }
-#if HAS_SERIAL1
-  else if (Serial1.available()) {
-    activeStream = &Serial1;
-  }
-#endif
-
-  if (activeStream == nullptr) return;
-
-  while (activeStream->available()) {
-    char c = activeStream->read();
+  // 1. Process from Hardware USART1 (PA9/PA10 - /dev/cu.usbserial)
+  while (Serial1.available()) {
+    char c = Serial1.read();
     if (c == '\r') continue;
     if (c == '\n') {
       cmdBuf[cmdPos] = '\0';
@@ -806,6 +808,23 @@ void processSerialInput() {
       cmdBuf[cmdPos++] = c;
     }
   }
+
+#if HAS_USB_SERIAL
+  // 2. Process from USB CDC (Micro-USB) if available
+  while (Serial.available()) {
+    char c = Serial.read();
+    if (c == '\r') continue;
+    if (c == '\n') {
+      cmdBuf[cmdPos] = '\0';
+      if (cmdPos > 0) {
+        handleCommand(cmdBuf);
+        cmdPos = 0;
+      }
+    } else if (cmdPos < sizeof(cmdBuf) - 1) {
+      cmdBuf[cmdPos++] = c;
+    }
+  }
+#endif
 }
 
 // =============================================================================
