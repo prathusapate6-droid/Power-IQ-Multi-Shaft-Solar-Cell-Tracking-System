@@ -1,39 +1,27 @@
 /*
 ================================================================================
  POWER IQ — Low-Power Multi-Shaft Solar Cell Tracking System
- Subsystem: STM32 Closed-Loop Sun Tracking + Automated Startup Homing
+ Subsystem: STM32 Closed-Loop Sun Tracking + Midpoint Datum Homing + Night Park
  Platform : STM32F103C8T6 "Blue Pill" (32-bit ARM Cortex-M3 @ 72 MHz)
  Authors  : Prathamesh Sapate (Lead), Shreyash Pachade, Vansh Dobhale, Prachi Ronge
- Purpose  : Fast, Low-Latency Sun Tracking with Auto Hall-Homing on Boot
+ Purpose  : High-Precision Sun Tracker with Wide-Magnet Centering & Night Auto-Park
 ================================================================================
 
- PHYSICAL AXIS MAPPING (CONFIRMED ON BENCH):
-   1. TOP SECTOR    : LDR PA0 + LDR PA1
-      -> When light is on PA0 & PA1: Slat tilts towards MINUS (-) side!
-   2. BOTTOM SECTOR : LDR PA4 + LDR PA5
-      -> When light is on PA4 & PA5: Slat tilts towards PLUS (+) side!
-   3. BALANCED      : abs(Bottom - Top) <= Deadband -> Motor Stops & Coils 0W!
-
- HARDWARE PIN ALLOCATION (STM32 BLUE PILL):
-   - PB8   -> A4988 STEP (Pulse)
-   - PB9   -> A4988 DIR  (Direction)
-   - PB10  -> A4988 ENABLE (Active-LOW: LOW=Energized, HIGH=0W Silent Sleep)
-   - PB11  -> Hall Effect 0.0° Home Sensor (Internal Pull-Up enabled)
-   - PC13  -> Onboard Status LED (Active-LOW)
-
-   - PA0   -> Top Sensor 1 (ADC1_IN0)
-   - PA1   -> Top Sensor 2 (ADC1_IN1)
-   - PA4   -> Bottom Sensor 1 (ADC1_IN4)
-   - PA5   -> Bottom Sensor 2 (ADC1_IN5)
-
-   - PA9   -> USB-TTL RX (USART1_TX @ 9600)
-   - PA10  -> USB-TTL TX (USART1_RX @ 9600)
-
- ARDUINO IDE TOOLS SETTINGS:
-   - Board         : "Generic STM32F103C series" (NOT C6/fake C8!)
-   - Variant       : "STM32F103C8 (20k RAM. 64k Flash)"
-   - Upload method : "Serial" (or "STM32duino bootloader")
-   - CPU Speed     : "72MHz (Normal)"
+ ENHANCED FEATURES IN THIS FIRMWARE:
+   1. WIDE-MAGNET MIDPOINT CENTERING:
+      - Automatically measures the physical width of the Hall magnet (0° to 10° span).
+      - Reverses and positions the motor exactly at the true geometric center of the
+        magnetic field, eliminating the 10° hysteresis error completely!
+   2. NIGHT AUTO-RETURN TO HOME (0.0°):
+      - When darkness is detected (all LDRs dark / low light), the tracker automatically
+        rotates back to 0.0° (flat horizontal home datum) and sleeps with 0W coils OFF.
+      - Automatically wakes up and resumes sun pursuit when daylight returns.
+   3. CORRECTED TRACKING ORIENTATION:
+      - TOP (PA0 + PA1) lit    -> Tilts towards PLUS (+) to face the sun.
+      - BOTTOM (PA4 + PA5) lit -> Tilts towards MINUS (-) to face the sun.
+      - All 4 lit equally      -> BALANCED: 100% Solar Yield, Coils 0W Locked.
+   4. ULTRA-LOW LATENCY & FAST GLIDE:
+      - 1200us pulse delay (416 steps/sec) + 250ms fast tracking evaluation loop.
 ================================================================================
 */
 
@@ -50,14 +38,13 @@
 #define PIN_LDR_BOT1    PA4   // Bottom Sector Sensor 1
 #define PIN_LDR_BOT2    PA5   // Bottom Sector Sensor 2
 
-#define PIN_HALL_HOME   PB11  // Hall-effect 0.0° Home Sensor (Active LOW)
+#define PIN_HALL_HOME   PB11  // Hall-effect Home Sensor (Active LOW)
 
 // ---------------- KINEMATICS & SPEED TUNING ----------------
 // Bench-confirmed transmission: 10.556 steps per degree
 float stepsPerDegree = 10.556f;
 
-// High-Speed Pulse Timing:
-// 1200us pulse delay (1.2ms HIGH + 1.2ms LOW = 416 steps/sec) -> Fast, smooth, strong torque!
+// High-Speed Pulse Timing: 1200us delay = 416 steps/sec (Fast & strong torque)
 int stepPulseDelayUs = 1200;
 
 // Travel Safety Limits (Degrees)
@@ -65,12 +52,12 @@ const float MIN_ANGLE = -40.0f;
 const float MAX_ANGLE =  40.0f;
 
 // ---------------- RESPONSIVE TRACKING PARAMETERS ----------------
-int deadbandThreshold   = 150;  // Optical deadband tolerance
-int nightDarkThreshold  = 200;  // Below this is room darkness / night
-unsigned long trackingIntervalMs = 250; // Ultra-responsive: 4 checks per second (Zero Latency!)
+int deadbandThreshold   = 150;  // Optical deadband tolerance (balanced zone)
+int nightDarkThreshold  = 200;  // Below this is darkness / night
+unsigned long trackingIntervalMs = 250; // Ultra-responsive: 4 checks per second
 
 bool isAutoTracking  = true;    // True = Auto Tracking, False = Manual mode
-bool invertDirection = false;   // Flip +/- if needed
+bool invertDirection = false;   // Flip direction if needed
 
 // System Position State
 float currentAngle = 0.0f;
@@ -165,80 +152,96 @@ void setup() {
 
   printlnAll();
   printlnAll(F("============================================================================"));
-  printlnAll(F(" POWER IQ — HIGH-SPEED STM32 SUN TRACKER + AUTO STARTUP HOMING              "));
+  printlnAll(F(" POWER IQ — SMART SUN TRACKER + MIDPOINT HOMING + NIGHT AUTO-PARK           "));
   printlnAll(F(" Architecture : 32-bit ARM Cortex-M3 @ 72 MHz (100% Pure STM32)             "));
-  printlnAll(F(" Orientation  : TOP (PA0+PA1) -> [-], BOTTOM (PA4+PA5) -> [+]               "));
+  printlnAll(F(" Orientation  : TOP (PA0+PA1) -> [+], BOTTOM (PA4+PA5) -> [-]               "));
+  printlnAll(F(" Features     : 10 deg Magnet Centering | Night Auto-Return to 0.0 deg       "));
   printlnAll(F(" Speed Tuning : Fast 1200 us pulses | 250 ms Fast Tracking Loop              "));
   printlnAll(F(" Safety Limits: -40.0 deg to +40.0 deg (80.0 deg Total Travel)               "));
   printlnAll(F("============================================================================"));
 
-  // 4. AUTOMATED STARTUP HOMING SEQUENCE
-  // Before starting tracking, find the 0.0° datum using Hall-effect magnet!
+  // 4. PRECISION STARTUP HOMING WITH MIDPOINT CENTERING
   runStartupHomingSequence();
 
-  digitalWrite(PIN_STATUS_LED, HIGH); // LED OFF (Homing complete, ready!)
+  digitalWrite(PIN_STATUS_LED, HIGH); // LED OFF (Ready)
   printlnAll(F("\n[READY] Auto-Tracking Active! Type 'HELP' in Serial Monitor for commands.\n"));
 }
 
 // =============================================================================
-// AUTOMATED STARTUP HOMING SEQUENCE (HALL SENSOR ON PB11)
+// PRECISION MIDPOINT HOMING ALGORITHM (ELIMINATES 10 DEG MAGNET WIDTH ERROR)
 // =============================================================================
 void runStartupHomingSequence() {
-  printlnAll(F("[HOMING] Starting automatic 0.0 deg Home Datum search..."));
-
-  // Check if magnet is already at 0.0° datum
-  if (digitalRead(PIN_HALL_HOME) == LOW) {
-    currentAngle = 0.0f;
-    isHomed = true;
-    printlnAll(F("[HOMING] Magnet already detected at 0.0 deg datum! Synchronized.\n"));
-    return;
-  }
-
-  // Energize motor for homing
+  printlnAll(F("[HOMING] Starting Precision Midpoint Homing (Measuring Magnet Width)..."));
   motorOn();
   digitalWrite(PIN_STATUS_LED, LOW); // LED ON during homing
 
-  bool foundHome = false;
-  long maxSearchSteps = (long)(50.0f * stepsPerDegree); // Search up to 50 deg
+  // If already inside the magnetic field, step backward until clear
+  if (digitalRead(PIN_HALL_HOME) == LOW) {
+    digitalWrite(PIN_DIR, LOW);
+    for (int i = 0; i < 200; i++) {
+      if (digitalRead(PIN_HALL_HOME) == HIGH) break;
+      stepPulse();
+    }
+  }
 
-  // Phase 1: Search in Negative Direction
-  printAll(F("[HOMING] Seeking datum in Negative direction..."));
-  digitalWrite(PIN_DIR, LOW); // Negative direction
+  // Phase 1: Seek Entry Edge of Magnet (Edge 1)
+  bool foundEdge1 = false;
+  long maxSearchSteps = (long)(60.0f * stepsPerDegree); // Search up to 60 deg
+
+  printAll(F("[HOMING] Seeking Magnet Edge 1..."));
+  digitalWrite(PIN_DIR, HIGH); // Search forward
   for (long s = 0; s < maxSearchSteps; s++) {
     if (digitalRead(PIN_HALL_HOME) == LOW) {
-      foundHome = true;
+      foundEdge1 = true;
       break;
     }
     stepPulse();
   }
 
-  // Phase 2: If not found, sweep in Positive Direction
-  if (!foundHome) {
-    printlnAll(F(" Not found."));
-    printAll(F("[HOMING] Seeking datum in Positive direction..."));
-    digitalWrite(PIN_DIR, HIGH); // Positive direction
-    long sweepSteps = maxSearchSteps * 2; // Sweep across full range
-    for (long s = 0; s < sweepSteps; s++) {
+  if (!foundEdge1) {
+    // If not found in positive direction, search negative
+    digitalWrite(PIN_DIR, LOW);
+    for (long s = 0; s < maxSearchSteps * 2; s++) {
       if (digitalRead(PIN_HALL_HOME) == LOW) {
-        foundHome = true;
+        foundEdge1 = true;
         break;
       }
       stepPulse();
     }
   }
 
-  motorOff();
-  digitalWrite(PIN_STATUS_LED, HIGH);
+  if (foundEdge1) {
+    // Phase 2: Measure Physical Magnet Width (Step from Edge 1 until it exits to Edge 2)
+    long spanSteps = 0;
+    long maxSpan = (long)(25.0f * stepsPerDegree); // Maximum expected magnet width (25 deg)
+    while (digitalRead(PIN_HALL_HOME) == LOW && spanSteps < maxSpan) {
+      stepPulse();
+      spanSteps++;
+    }
 
-  if (foundHome) {
+    // Phase 3: Step back to Exact Geometric Center (spanSteps / 2)
+    long centerSteps = spanSteps / 2;
+    if (centerSteps > 0) {
+      uint8_t currentDir = digitalRead(PIN_DIR);
+      digitalWrite(PIN_DIR, !currentDir); // Reverse direction
+      for (long s = 0; s < centerSteps; s++) {
+        stepPulse();
+      }
+    }
+
     currentAngle = 0.0f;
     isHomed = true;
-    printlnAll(F("\n[HOMING] SUCCESS! Hall-effect magnet tripped. Position calibrated to 0.0 deg!"));
+    printAll(F("\n[HOMING] Magnet Width: "));
+    printAll(spanSteps / stepsPerDegree, 1);
+    printlnAll(F(" deg. Successfully centered at true 0.0 deg datum!"));
   } else {
     currentAngle = 0.0f;
     isHomed = true;
-    printlnAll(F("\n[WARN] Hall sensor not reached within search travel. Setting current position as 0.0 deg."));
+    printlnAll(F("\n[WARN] Magnet not detected during travel. Position zeroed at current angle."));
   }
+
+  motorOff();
+  digitalWrite(PIN_STATUS_LED, HIGH);
   printlnAll(F("----------------------------------------------------------------------------"));
 }
 
@@ -290,10 +293,10 @@ void executeSunTracking() {
   int avgTop    = (lightT1 + lightT2) / 2;
   int avgBottom = (lightB1 + lightB2) / 2;
 
-  // 4. Compute Axis Differential (Bottom vs Top):
-  // When Top > Bottom    -> diff is NEGATIVE -> Moves towards MINUS (-)
-  // When Bottom > Top    -> diff is POSITIVE -> Moves towards PLUS (+)
-  int diff = avgBottom - avgTop;
+  // 4. Compute Axis Differential (Top vs Bottom):
+  // When Top > Bottom    -> diff is POSITIVE -> Tilts towards PLUS (+)
+  // When Bottom > Top    -> diff is NEGATIVE -> Tilts towards MINUS (-)
+  int diff = avgTop - avgBottom;
   if (invertDirection) diff = -diff;
 
   int totalAmbient = (avgTop + avgBottom) / 2;
@@ -303,45 +306,56 @@ void executeSunTracking() {
   const char* trackingState = "BALANCED";
 
   if (totalAmbient < nightDarkThreshold) {
-    // Night / Darkness in room
-    trackingState = "NIGHT SLEEP (0W Coils OFF)";
+    // ---------------- NIGHT MODE: AUTO-RETURN TO 0.0 DEG HOME ----------------
+    if (abs(currentAngle) > 0.5f) {
+      trackingState = "NIGHT DETECTED -> Parking at 0.0 deg HOME";
+      if (isAutoTracking) {
+        moveToAngle(0.0f);
+      }
+    } else {
+      trackingState = "NIGHT SLEEP (Parked at 0.0 deg, 0W Coils OFF)";
+      motorOff();
+    }
   }
   else if (abs(diff) <= deadbandThreshold) {
-    // Within Deadband: Panels are aligned directly with the light!
-    trackingState = "BALANCED (Sun Locked, 0W Holding)";
+    // ---------------- 100% BALANCED / DIRECT SUN ALIGNMENT ----------------
+    // When all sensors are lit and balanced, panel is normal to the sun!
+    trackingState = "BALANCED -> SUN LOCKED (100% Solar Yield)";
+    motorOff(); // 100% silent and cool (0W power)
   }
-  else if (diff < -deadbandThreshold) {
-    // Sun is on TOP (PA0 + PA1) -> Tilt towards MINUS (-)
-    // Adaptive step size based on error magnitude:
+  else if (diff > deadbandThreshold) {
+    // ---------------- SUN IS ON TOP (PA0 + PA1) ----------------
+    // Move towards PLUS (+) side to align with the sun
     float stepDeg = 1.0f;
-    if (abs(diff) > 1500) stepDeg = 2.0f;       // Large error -> Fast glide (2 deg)
-    else if (abs(diff) < 500) stepDeg = 0.5f;   // Small error -> Fine alignment (0.5 deg)
+    if (abs(diff) > 1500) stepDeg = 2.0f;       // Large angle gap -> Fast glide
+    else if (abs(diff) < 500) stepDeg = 0.5f;   // Small gap -> Fine micro-adjustment
 
     if (isAutoTracking) {
-      float nextAngle = currentAngle - stepDeg;
-      if (nextAngle >= MIN_ANGLE) {
-        trackingState = "SUN ON TOP (PA0+PA1) -> Moving (-)";
+      float nextAngle = currentAngle + stepDeg;
+      if (nextAngle <= MAX_ANGLE) {
+        trackingState = "SUN ON TOP (PA0+PA1) -> Moving (+)";
         moveToAngle(nextAngle);
       } else {
-        trackingState = "LIMIT REACHED (-40.0 deg MIN)";
+        trackingState = "LIMIT REACHED (+40.0 deg MAX)";
       }
     } else {
       trackingState = "SUN ON TOP (Manual Mode)";
     }
   }
   else {
-    // Sun is on BOTTOM (PA4 + PA5) -> Tilt towards PLUS (+)
+    // ---------------- SUN IS ON BOTTOM (PA4 + PA5) ----------------
+    // Move towards MINUS (-) side to align with the sun
     float stepDeg = 1.0f;
     if (abs(diff) > 1500) stepDeg = 2.0f;
     else if (abs(diff) < 500) stepDeg = 0.5f;
 
     if (isAutoTracking) {
-      float nextAngle = currentAngle + stepDeg;
-      if (nextAngle <= MAX_ANGLE) {
-        trackingState = "SUN ON BOTTOM (PA4+PA5) -> Moving (+)";
+      float nextAngle = currentAngle - stepDeg;
+      if (nextAngle >= MIN_ANGLE) {
+        trackingState = "SUN ON BOTTOM (PA4+PA5) -> Moving (-)";
         moveToAngle(nextAngle);
       } else {
-        trackingState = "LIMIT REACHED (+40.0 deg MAX)";
+        trackingState = "LIMIT REACHED (-40.0 deg MIN)";
       }
     } else {
       trackingState = "SUN ON BOTTOM (Manual Mode)";
@@ -574,7 +588,7 @@ void printHelp() {
   printlnAll(F("========================================================"));
   printlnAll(F(" AUTO          : Enable continuous automatic sun tracking"));
   printlnAll(F(" MANUAL        : Pause auto tracking (hold current angle)"));
-  printlnAll(F(" HOME          : Run automatic Hall-effect 0.0 deg homing"));
+  printlnAll(F(" HOME          : Run automatic Hall-effect midpoint homing"));
   printlnAll(F(" GOTO <deg>    : Move slats to specific angle (-40 to +40)"));
   printlnAll(F(" ZERO          : Calibrate current position as 0.0 deg  "));
   printlnAll(F(" SPEED <us>    : Change step pulse delay (default: 1200)"));
