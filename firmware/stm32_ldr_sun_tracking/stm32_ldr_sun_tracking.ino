@@ -4,25 +4,28 @@
  Subsystem: STM32 Guaranteed Startup ZERO Positioning + LDR Sun Tracking
  Platform : STM32F103C8T6 "Blue Pill" (32-bit ARM Cortex-M3 @ 72 MHz)
  Authors  : Prathamesh Sapate (Lead), Shreyash Pachade, Vansh Dobhale, Prachi Ronge
- Purpose  : Always Finds ZERO Datum First Before Starting Precision Sun Tracking
+ Purpose  : Dual Independent Speed Control for ZERO Homing & Sun Tracking
 ================================================================================
 
- SYSTEM OPERATION FLOW:
-   1. STARTUP ZERO FIRST:
-      - On boot/reset, the controller checks whether the 0.0° datum is calibrated.
-      - If position is unknown, it executes an automated, gentle, bench-proven
-        ZERO search using the Hall-effect sensor on PB11.
-      - Measures magnet width and locks dead-center at 0.0° (eliminates magnet error).
-   2. TRACKING BEGINS ONLY AFTER ZERO:
-      - Once ZERO is established, currentAngle = 0.0° is guaranteed accurate.
-      - Continuous Sun Tracking commences immediately from known datum!
-   3. SLEEP / NIGHT PARKING:
-      - When dark, holds angle for 8s, then smoothly returns to 0.0° Home and sleeps (0W).
-      - On waking up, position is already verified at 0.0°, and tracking resumes smoothly.
+ USER SPEED & ADJUSTMENT VARIABLES:
+   1. ZERO_HOMING_SPEED_US : Controls the motor speed during ZERO 0.0° homing.
+   2. TRACKING_SPEED_US    : Controls the motor speed during normal sun tracking.
+   (LOWER value = FASTER speed | HIGHER value = SLOWER speed / Higher torque)
 ================================================================================
 */
 
 #include <Arduino.h>
+
+// =============================================================================
+// 1. USER SPEED & TIMING VARIABLES (TUNE YOUR SPEEDS HERE!)
+// =============================================================================
+// Pulse delay in microseconds (us) for each half of step pulse:
+//   - 2500 us = Safe, full torque, smooth benchmark
+//   - 2000 us = Fast, smooth tracking
+//   - 1600 us = Very fast tracking
+//   - 1200 us = Maximum speed limit
+int ZERO_HOMING_SPEED_US = 2500;  // Speed during 0.0 deg ZERO search (default: 2500 us)
+int TRACKING_SPEED_US    = 2000;  // Speed during Sun Tracking motion (default: 2000 us)
 
 // ---------------- GPIO PIN DEFINITIONS (STM32 BLUE PILL) ----------------
 #define PIN_STEP        PB8   // A4988 STEP pulse
@@ -38,8 +41,7 @@
 #define PIN_HALL_HOME   PB11  // Hall-effect Home Sensor (Active LOW)
 
 // ---------------- KINEMATICS & PROVEN BENCH CONSTANTS ----------------
-const float STEPS_PER_DEGREE    = 10.556f; // 19:1 Worm gear ratio
-const int   STEP_PULSE_DELAY_US = 2500;    // 2500us proven full-torque delay
+const float STEPS_PER_DEGREE = 10.556f; // 19:1 Worm gear ratio
 
 const float MIN_ANGLE = -40.0f;
 const float MAX_ANGLE =  40.0f;
@@ -108,8 +110,8 @@ void printlnAll(T msg, P p) {
 // ---------------- FORWARD DECLARATIONS ----------------
 void motorOn();
 void motorOff();
-void stepPulse();
-void moveToAngle(float targetAngle);
+void stepPulse(int delayUs);
+void moveToAngle(float targetAngle, int speedUs = 0);
 void findZeroHomeDatum();
 void processSerialInput();
 void executeSunTracking();
@@ -147,13 +149,12 @@ void setup() {
   printlnAll();
   printlnAll(F("============================================================================"));
   printlnAll(F(" POWER IQ — STM32 SUN TRACKER: ZERO FIRST, THEN TRACK                       "));
-  printlnAll(F(" Calibration  : 10.556 steps/deg | Pulse: 2500 us (100% Torque Bench Proven) "));
-  printlnAll(F(" Orientation  : TOP (PA0+PA1) vs BOTTOM (PA4+PA5)                           "));
-  printlnAll(F(" Safety Range : -40.0 deg to +40.0 deg (80.0 deg Total Travel)               "));
+  printlnAll(F(" Calibration  : 10.556 steps/deg | Safety Limits: -40.0 to +40.0 deg        "));
+  printAll(F(" Tracking Spd : ")); printAll(TRACKING_SPEED_US);
+  printAll(F(" us | ZERO Homing Spd: ")); printAll(ZERO_HOMING_SPEED_US); printlnAll(F(" us"));
   printlnAll(F("============================================================================"));
 
   // 4. GUARANTEED ZERO POSITIONING AT STARTUP
-  // Before starting tracking, always find and lock the 0.0 deg ZERO datum!
   findZeroHomeDatum();
 
   digitalWrite(PIN_STATUS_LED, HIGH); // LED OFF (Ready)
@@ -189,10 +190,10 @@ void findZeroHomeDatum() {
       foundMagnet = true;
       break;
     }
-    stepPulse();
+    stepPulse(ZERO_HOMING_SPEED_US);
   }
 
-  // Phase 2: If not found, sweep in Direction B (Positive) across the 80 deg travel window
+  // Phase 2: If not found, sweep in Direction B (Positive) across 80 deg travel window
   if (!foundMagnet) {
     digitalWrite(PIN_DIR, HIGH);
     long fullSweep = (long)(90.0f * STEPS_PER_DEGREE);
@@ -201,19 +202,18 @@ void findZeroHomeDatum() {
         foundMagnet = true;
         break;
       }
-      stepPulse();
+      stepPulse(ZERO_HOMING_SPEED_US);
     }
   }
 
   if (foundMagnet) {
-    // Phase 3: Centering inside the magnet width (Eliminates 0-10 deg magnet span error)
-    // Step forward until it exits the magnet, counting the steps
+    // Phase 3: Centering inside magnet width (Eliminates 0-10 deg magnet span error)
     long spanSteps = 0;
     long maxSpan = (long)(20.0f * STEPS_PER_DEGREE); // Max 20 deg span
     uint8_t movingDir = digitalRead(PIN_DIR);
 
     while (digitalRead(PIN_HALL_HOME) == LOW && spanSteps < maxSpan) {
-      stepPulse();
+      stepPulse(ZERO_HOMING_SPEED_US);
       spanSteps++;
     }
 
@@ -222,7 +222,7 @@ void findZeroHomeDatum() {
     if (centerSteps > 0) {
       digitalWrite(PIN_DIR, (movingDir == HIGH) ? LOW : HIGH);
       for (long s = 0; s < centerSteps; s++) {
-        stepPulse();
+        stepPulse(ZERO_HOMING_SPEED_US);
       }
     }
 
@@ -317,7 +317,7 @@ void executeSunTracking() {
       // 8 full seconds of darkness confirmed -> Return to 0.0 Home
       if (abs(currentAngle) > 0.5f) {
         trackingState = "NIGHT CONFIRMED (8s) -> Parking at 0.0 deg";
-        if (isAutoTracking) moveToAngle(0.0f);
+        if (isAutoTracking) moveToAngle(0.0f, TRACKING_SPEED_US);
       } else {
         trackingState = "NIGHT SLEEP (Parked at 0.0 deg, 0W Coils OFF)";
         motorOff();
@@ -343,7 +343,7 @@ void executeSunTracking() {
         float nextAngle = currentAngle + 1.0f;
         if (nextAngle <= MAX_ANGLE) {
           trackingState = "SUN ON TOP (PA0+PA1) -> Moving (+)";
-          moveToAngle(nextAngle);
+          moveToAngle(nextAngle, TRACKING_SPEED_US);
         } else {
           trackingState = "LIMIT REACHED (+40.0 deg MAX)";
         }
@@ -357,7 +357,7 @@ void executeSunTracking() {
         float nextAngle = currentAngle - 1.0f;
         if (nextAngle >= MIN_ANGLE) {
           trackingState = "SUN ON BOTTOM (PA4+PA5) -> Moving (-)";
-          moveToAngle(nextAngle);
+          moveToAngle(nextAngle, TRACKING_SPEED_US);
         } else {
           trackingState = "LIMIT REACHED (-40.0 deg MIN)";
         }
@@ -393,19 +393,20 @@ void printTelemetry(int topVal, int botVal, int diff, const char* stateStr) {
   printAll(diff);
   printAll(F(" (Deadband: +/-")); printAll(deadbandThreshold); printlnAll(F(")"));
 
-  printAll(F(" Hall Magnet : "));
-  printAll(digitalRead(PIN_HALL_HOME) == LOW ? F("DETECTED (0.0 HOME)") : F("OPEN"));
-  printAll(F(" | Motor: "));
-  printlnAll(F("0W Silent Holding"));
+  printAll(F(" Speed: Track=")); printAll(TRACKING_SPEED_US);
+  printAll(F("us, Home=")); printAll(ZERO_HOMING_SPEED_US);
+  printAll(F("us | Hall Magnet: "));
+  printlnAll(digitalRead(PIN_HALL_HOME) == LOW ? F("DETECTED (0.0 HOME)") : F("OPEN"));
 
-  printAll(F(" Status      : ")); printlnAll(stateStr);
+  printAll(F(" Motor: 0W Silent Holding | Status: "));
+  printlnAll(stateStr);
   printlnAll(F("----------------------------------------------------------------------------"));
 }
 
 // =============================================================================
-// MOTOR CONTROL (BENCH CALIBRATED TO 2500us PULSES & FULL TORQUE)
+// MOTOR KINEMATIC CONTROL
 // =============================================================================
-void moveToAngle(float targetAngle) {
+void moveToAngle(float targetAngle, int speedUs) {
   if (targetAngle < MIN_ANGLE) targetAngle = MIN_ANGLE;
   if (targetAngle > MAX_ANGLE) targetAngle = MAX_ANGLE;
 
@@ -418,6 +419,8 @@ void moveToAngle(float targetAngle) {
     return;
   }
 
+  int activeSpeed = (speedUs > 0) ? speedUs : TRACKING_SPEED_US;
+
   // 1. Energize Motor Coils & allow charge pump to stabilize
   motorOn();
   digitalWrite(PIN_STATUS_LED, LOW); // Active LOW: LED ON
@@ -425,9 +428,9 @@ void moveToAngle(float targetAngle) {
   // 2. Set Direction
   digitalWrite(PIN_DIR, (deltaDeg > 0) ? HIGH : LOW);
 
-  // 3. Step Pulses with proven 2500us delay (Full Torque)
+  // 3. Step Pulses with selected speed
   for (long i = 0; i < steps; i++) {
-    stepPulse();
+    stepPulse(activeSpeed);
   }
 
   // 4. Update Position
@@ -438,11 +441,11 @@ void moveToAngle(float targetAngle) {
   digitalWrite(PIN_STATUS_LED, HIGH); // LED OFF
 }
 
-void stepPulse() {
+void stepPulse(int delayUs) {
   digitalWrite(PIN_STEP, HIGH);
-  delayMicroseconds(STEP_PULSE_DELAY_US);
+  delayMicroseconds(delayUs);
   digitalWrite(PIN_STEP, LOW);
-  delayMicroseconds(STEP_PULSE_DELAY_US);
+  delayMicroseconds(delayUs);
 }
 
 void motorOn() {
@@ -487,6 +490,31 @@ void handleCommand(char* cmd) {
     printAll(F("\n[CMD] Tracking direction inverted: "));
     printlnAll(invertMotorDir ? F("REVERSED") : F("NORMAL"));
   }
+  else if (strncasecmp(cmd, "SPEED_TRACK ", 12) == 0) {
+    int val = atoi(cmd + 12);
+    if (val >= 800 && val <= 5000) {
+      TRACKING_SPEED_US = val;
+      printAll(F("\n[CMD] Tracking Speed updated to: "));
+      printAll(TRACKING_SPEED_US); printlnAll(F(" us"));
+    }
+  }
+  else if (strncasecmp(cmd, "SPEED_HOME ", 11) == 0) {
+    int val = atoi(cmd + 11);
+    if (val >= 800 && val <= 5000) {
+      ZERO_HOMING_SPEED_US = val;
+      printAll(F("\n[CMD] ZERO Homing Speed updated to: "));
+      printAll(ZERO_HOMING_SPEED_US); printlnAll(F(" us"));
+    }
+  }
+  else if (strncasecmp(cmd, "SPEED ", 6) == 0) {
+    int val = atoi(cmd + 6);
+    if (val >= 800 && val <= 5000) {
+      TRACKING_SPEED_US = val;
+      ZERO_HOMING_SPEED_US = val;
+      printAll(F("\n[CMD] Both Tracking & Homing speeds updated to: "));
+      printAll(val); printlnAll(F(" us"));
+    }
+  }
   else if (strncasecmp(cmd, "DEADBAND ", 9) == 0) {
     int val = atoi(cmd + 9);
     if (val >= 5 && val <= 1000) {
@@ -500,8 +528,8 @@ void handleCommand(char* cmd) {
     printAll(F(" Angle          : ")); printAll(currentAngle, 1); printlnAll(F(" deg"));
     printAll(F(" Homed (ZERO)   : ")); printlnAll(isHomed ? F("YES (0.0 deg)") : F("NO"));
     printAll(F(" Tracking Mode  : ")); printlnAll(isAutoTracking ? F("AUTO") : F("MANUAL"));
-    printAll(F(" Direction Invert: ")); printlnAll(invertMotorDir ? F("YES") : F("NO"));
-    printAll(F(" Pulse Delay    : ")); printAll(STEP_PULSE_DELAY_US); printlnAll(F(" us"));
+    printAll(F(" Tracking Speed : ")); printAll(TRACKING_SPEED_US); printlnAll(F(" us"));
+    printAll(F(" Homing Speed   : ")); printAll(ZERO_HOMING_SPEED_US); printlnAll(F(" us"));
     printAll(F(" Steps/Deg      : ")); printlnAll(STEPS_PER_DEGREE, 4);
     printAll(F(" Deadband       : ")); printlnAll(deadbandThreshold);
     printAll(F(" Night Threshold: ")); printlnAll(nightDarkThreshold);
@@ -534,7 +562,7 @@ void handleCommand(char* cmd) {
       }
       isAutoTracking = false;
       printlnAll(F("\n[MANUAL] Moving to commanded angle..."));
-      moveToAngle(target);
+      moveToAngle(target, TRACKING_SPEED_US);
       printlnAll(F("[MANUAL] Reached. (Type 'AUTO' to resume sun tracking)\n"));
     }
   }
@@ -575,14 +603,16 @@ void printHelp() {
   printlnAll(F("\n========================================================"));
   printlnAll(F(" POWER IQ — SUN TRACKER SERIAL COMMANDS                 "));
   printlnAll(F("========================================================"));
-  printlnAll(F(" AUTO          : Enable continuous automatic sun tracking"));
-  printlnAll(F(" MANUAL        : Pause auto tracking (hold current angle)"));
-  printlnAll(F(" GOTO <deg>    : Move slats to specific angle (-40 to +40)"));
-  printlnAll(F(" ZERO          : Calibrate current position as 0.0 deg  "));
-  printlnAll(F(" HOME          : Re-run Hall-effect ZERO calibration    "));
-  printlnAll(F(" INVERT        : Flip motor tracking direction (+/-)    "));
-  printlnAll(F(" DEADBAND <n>  : Adjust optical deadband (default: 50)  "));
-  printlnAll(F(" STATUS        : Display system parameters & sensors     "));
-  printlnAll(F(" HELP / ?      : Show this instruction guide            "));
+  printlnAll(F(" AUTO             : Enable continuous automatic sun tracking"));
+  printlnAll(F(" MANUAL           : Pause auto tracking (hold current angle)"));
+  printlnAll(F(" GOTO <deg>       : Move slats to specific angle (-40 to +40)"));
+  printlnAll(F(" ZERO             : Calibrate current position as 0.0 deg  "));
+  printlnAll(F(" HOME             : Re-run Hall-effect ZERO calibration    "));
+  printlnAll(F(" SPEED_TRACK <us> : Adjust sun tracking speed (default: 2000)"));
+  printlnAll(F(" SPEED_HOME <us>  : Adjust ZERO homing speed (default: 2500)"));
+  printlnAll(F(" INVERT           : Flip motor tracking direction (+/-)    "));
+  printlnAll(F(" DEADBAND <n>     : Adjust optical deadband (default: 50)  "));
+  printlnAll(F(" STATUS           : Display system parameters & sensors     "));
+  printlnAll(F(" HELP / ?         : Show this instruction guide            "));
   printlnAll(F("========================================================\n"));
 }
