@@ -45,7 +45,7 @@
 // 1. USER SPEED & TIMING VARIABLES
 // =============================================================================
 int ZERO_HOMING_SPEED_US = 2500;  // Speed during 0.0 deg ZERO search (default: 2500 us)
-int TRACKING_SPEED_US    = 2000;  // Speed during Sun Tracking motion (default: 2000 us)
+int TRACKING_SPEED_US    = 2500;  // Speed during Sun Tracking motion (default: 2000 us)
 
 // ---------------- GPIO PIN DEFINITIONS (STM32 BLUE PILL) ----------------
 #define PIN_STEP        PB8   // A4988 STEP pulse
@@ -73,7 +73,7 @@ const float VOLT_DIVIDER_RATIO = (33000.0f + 6800.0f) / 6800.0f; // 5.8529
 float refVoltage = 3.3f; // STM32 ADC Reference Voltage
 
 float currentSensitivity = 0.100f; // 100 mV/A (ACS712-20A)
-float currentZeroOffset   = 1.65f;  // VCC/2 offset
+float currentZeroOffset   = 2.50f;  // Auto-calibrated at boot (Nominal 2.5V for 5V ACS712)
 
 float solarVoltage = 0.0f; // Volts
 float solarCurrent = 0.0f; // Amps
@@ -230,6 +230,7 @@ void moveToAngle(float targetAngle, int speedUs = 0);
 void findZeroHomeDatum();
 void updateDhtSensors();
 void updatePowerSensors();
+void calibrateCurrentSensor();
 void handleManualControls();
 void processSerialInput();
 void executeSunTracking();
@@ -288,11 +289,14 @@ void setup() {
   printAll(F(" us | ZERO Homing: ")); printAll(ZERO_HOMING_SPEED_US); printlnAll(F(" us"));
   printlnAll(F("========================================================"));
 
-  // 3. Initial Sensor Readings
+  // 3. Auto-calibrate Current Sensor Zero Baseline
+  calibrateCurrentSensor();
+
+  // 4. Initial Sensor Readings
   updatePowerSensors();
   updateDhtSensors();
 
-  // 4. Calibrate ZERO Datum
+  // 5. Calibrate ZERO Datum
   findZeroHomeDatum();
 
   digitalWrite(PIN_STATUS_LED, HIGH); // LED OFF (Ready)
@@ -366,6 +370,18 @@ void handleManualControls() {
 }
 
 // =============================================================================
+// CURRENT SENSOR AUTO-ZERO CALIBRATION
+// =============================================================================
+void calibrateCurrentSensor() {
+  long sum = 0;
+  for (int i = 0; i < 64; i++) {
+    sum += analogRead(PIN_SOLAR_CURR);
+    delayMicroseconds(250);
+  }
+  currentZeroOffset = ((sum / 64.0f) * refVoltage) / 4095.0f;
+}
+
+// =============================================================================
 // POWER SENSING (SOLAR & BATTERY)
 // =============================================================================
 void updatePowerSensors() {
@@ -381,17 +397,24 @@ void updatePowerSensors() {
   }
   float adcVoltS = ((sumSV / 8.0f) * refVoltage) / 4095.0f;
   solarVoltage = adcVoltS * VOLT_DIVIDER_RATIO;
-  if (solarVoltage < 0.15f) solarVoltage = 0.0f;
+  if (solarVoltage < 0.20f) solarVoltage = 0.0f; // Noise floor
 
-  // 2. Solar Current (PA7)
+  // 2. Solar Current (PA7) with auto-calibrated zero baseline
   long sumSC = 0;
-  for (int i = 0; i < 8; i++) {
+  for (int i = 0; i < 16; i++) {
     sumSC += analogRead(PIN_SOLAR_CURR);
     delayMicroseconds(40);
   }
-  float adcCurrS = ((sumSC / 8.0f) * refVoltage) / 4095.0f;
-  solarCurrent = (adcCurrS - currentZeroOffset) / currentSensitivity;
-  if (solarCurrent < 0.05f) solarCurrent = 0.0f;
+  float adcCurrS = ((sumSC / 16.0f) * refVoltage) / 4095.0f;
+  float diffVolt = adcCurrS - currentZeroOffset;
+
+  // Deadband around zero: if difference is less than 30mV (~0.3A), force 0.00 A
+  if (fabs(diffVolt) < 0.030f) {
+    solarCurrent = 0.0f;
+  } else {
+    solarCurrent = diffVolt / currentSensitivity;
+    if (solarCurrent < 0.10f) solarCurrent = 0.0f; // Positive unidirectional solar flow
+  }
 
   // 3. Solar Power (Watts)
   solarPower = solarVoltage * solarCurrent;
@@ -404,7 +427,7 @@ void updatePowerSensors() {
   }
   float adcVoltB = ((sumBV / 8.0f) * refVoltage) / 4095.0f;
   battVoltage = adcVoltB * VOLT_DIVIDER_RATIO;
-  if (battVoltage < 0.15f) battVoltage = 0.0f;
+  if (battVoltage < 0.20f) battVoltage = 0.0f;
 }
 
 // =============================================================================
@@ -732,6 +755,12 @@ void handleCommand(char* cmd) {
       printlnAll(deadbandThreshold);
     }
   }
+  else if (strcasecmp(cmd, "ZERO_CURR") == 0 || strcasecmp(cmd, "CAL_CURR") == 0) {
+    calibrateCurrentSensor();
+    printAll(F("\n[CMD] Current Zero Baseline calibrated to: "));
+    printAll(currentZeroOffset, 3);
+    printlnAll(F(" V -> Current is now 0.00 A\n"));
+  }
   else if (strcasecmp(cmd, "STATUS") == 0) {
     printlnAll(F("\n--- SYSTEM PARAMETERS ---"));
     printAll(F(" Angle          : ")); printAll(currentAngle, 1); printlnAll(F(" deg"));
@@ -844,6 +873,7 @@ void printHelp() {
   printlnAll(F(" VREF <float>     : Calibrate ADC VREF voltage (default: 3.3)"));
   printlnAll(F(" INVERT           : Flip motor tracking direction (+/-)    "));
   printlnAll(F(" DEADBAND <n>     : Adjust optical deadband (default: 50)  "));
+  printlnAll(F(" ZERO_CURR        : Auto-zero current sensor to 0.00 A     "));
   printlnAll(F(" STATUS           : Display system parameters & sensors     "));
   printlnAll(F(" HELP / ?         : Show this instruction guide            "));
   printlnAll(F("========================================================\n"));
