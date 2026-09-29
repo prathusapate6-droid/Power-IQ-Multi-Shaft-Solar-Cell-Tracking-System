@@ -49,6 +49,7 @@ export function useSolarSimulation() {
 
   // Real Hardware Values from STM32 + ESP32
   const actualShaftAngle = telemetry ? Number(telemetry.angle.toFixed(1)) : 0.0;
+  const potAngle = telemetry && telemetry.pot_angle !== undefined ? Number(telemetry.pot_angle.toFixed(1)) : 0.0;
   const trackingMode: TrackingMode = (telemetry && telemetry.mode === 'AUTO') ? 'AUTO' : 'MANUAL';
   const solarVoltageV = telemetry ? Number(telemetry.solar_voltage.toFixed(2)) : 0.0;
   const solarCurrentA = telemetry ? Number(telemetry.solar_current.toFixed(2)) : 0.0;
@@ -382,6 +383,7 @@ export function useSolarSimulation() {
     sunAzimuth: 180 + Math.round(actualShaftAngle * 1.5),
     targetAngle: Number(actualShaftAngle.toFixed(1)),
     actualShaftAngle: Number(actualShaftAngle.toFixed(1)),
+    potAngle,
     trackingError: 0.1,
     intermittentCountdownSec: 25,
     isAdjusting: isMotorMoving,

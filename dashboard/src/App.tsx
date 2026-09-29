@@ -115,6 +115,7 @@ export const App: React.FC = () => {
               onEmergencyStop={handleEmergencyStop}
               isEmergencyStopped={isEmergencyStopped}
               actualAngle={tracking.actualShaftAngle}
+              potAngle={tracking.potAngle}
               isHardwareOnline={isHardwareOnline}
               onZeroCurrent={() => sendCommand('ZERO_CURR')}
               onInvertMotor={() => sendCommand('INVERT')}

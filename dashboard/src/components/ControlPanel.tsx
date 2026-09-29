@@ -21,6 +21,7 @@ interface ControlPanelProps {
   onEmergencyStop: () => void;
   isEmergencyStopped: boolean;
   actualAngle: number;
+  potAngle?: number;
   isHardwareOnline?: boolean;
   onZeroCurrent?: () => void;
   onInvertMotor?: () => void;
@@ -34,6 +35,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   onEmergencyStop,
   isEmergencyStopped,
   actualAngle,
+  potAngle,
   isHardwareOnline = false,
   onZeroCurrent,
   onInvertMotor,
@@ -65,12 +67,23 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
           </div>
         </div>
 
-        {/* Current Slat Angle Badge */}
-        <div className="flex items-center gap-2 text-xs font-mono">
-          <span className="text-slate-500">Shaft Position:</span>
-          <span className="bg-slate-900 text-amber-400 px-2.5 py-1 rounded-md font-bold text-sm">
-            {actualAngle > 0 ? `+${actualAngle}°` : `${actualAngle}°`}
-          </span>
+        {/* Current Slat & Potentiometer Angle Badges */}
+        <div className="flex flex-wrap items-center gap-2 text-xs font-mono">
+          {potAngle !== undefined && (
+            <div className="flex items-center gap-1.5 bg-purple-50 text-purple-900 border border-purple-200 px-2.5 py-1 rounded-md">
+              <span className="text-[10px] text-purple-600 font-semibold uppercase">Potentiometer:</span>
+              <span className="font-bold">
+                {potAngle > 0 ? `+${potAngle}°` : `${potAngle}°`}
+                {potAngle === 0 ? ' [ZERO DATUM]' : potAngle > 0 ? ' [RIGHT (+)]' : ' [LEFT (-)]'}
+              </span>
+            </div>
+          )}
+          <div className="flex items-center gap-1.5 bg-slate-900 text-amber-400 px-2.5 py-1 rounded-md">
+            <span className="text-[10px] text-slate-400 font-semibold uppercase">Solar Slats:</span>
+            <span className="font-bold text-sm">
+              {actualAngle > 0 ? `+${actualAngle}°` : `${actualAngle}°`}
+            </span>
+          </div>
         </div>
       </div>
 

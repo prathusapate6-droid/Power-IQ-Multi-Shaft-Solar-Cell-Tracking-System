@@ -49,6 +49,7 @@ export interface TrackingGeometry {
   sunAzimuth: number;
   targetAngle: number;
   actualShaftAngle: number;
+  potAngle?: number;
   trackingError: number;
   intermittentCountdownSec: number;
   isAdjusting: boolean;

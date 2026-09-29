@@ -111,6 +111,7 @@ unsigned long lastTelemetryTime = 0;
 bool lastBtnState = HIGH;
 unsigned long lastBtnDebounceMs = 0;
 float lastPotTargetAngle = 0.0f;
+float currentPotAngle = 0.0f;
 
 int lastTopVal = 0;
 int lastBotVal = 0;
@@ -149,6 +150,8 @@ void printlnAll(T msg, P p) {
 void sendEsp32JsonTelemetry() {
   Serial2.print(F("{\"ang\":"));
   Serial2.print(currentAngle, 1);
+  Serial2.print(F(",\"pot\":"));
+  Serial2.print(currentPotAngle, 1);
   Serial2.print(F(",\"mode\":\""));
   Serial2.print(isAutoTracking ? "AUTO" : "MAN");
   Serial2.print(F("\",\"homed\":"));
@@ -468,26 +471,63 @@ void handleManualControls() {
     }
   }
 
-  // 2. In MANUAL mode:
-  // If a potentiometer on PB0 is physically present and intentionally turned, update angle.
-  // Otherwise, maintain the current commanded angle (do not fight GOTO / dashboard jog commands).
-  if (!isAutoTracking) {
-    static int lastPotVal = -999;
-    int rawPot = analogRead(PIN_POT_MANUAL);
+  // 2. Hardware 10k Potentiometer Manual Controller (PB0):
+  // Continuously monitors knob position (-40.0° to +40.0°)
+  static int lastPotVal = -999;
+  int rawPot = analogRead(PIN_POT_MANUAL);
 
-    if (lastPotVal == -999) {
-      lastPotVal = rawPot;
+  if (lastPotVal == -999) {
+    lastPotVal = rawPot;
+  }
+
+  // Calculate target angle from potentiometer (0 -> -40 deg, 2048 -> 0 deg, 4095 -> +40 deg)
+  float rawAngle = ((rawPot / 4095.0f) * 80.0f) - 40.0f;
+  // Center deadband: snap to exact 0.0 deg ZERO datum
+  if (fabs(rawAngle) <= 1.2f) {
+    currentPotAngle = 0.0f;
+  } else {
+    currentPotAngle = rawAngle;
+  }
+
+  // When potentiometer is actively turned (> 40 ADC counts change):
+  if (abs(rawPot - lastPotVal) > 40) {
+    lastPotVal = rawPot;
+
+    // Switch to MANUAL mode upon intentional physical knob rotation
+    if (isAutoTracking) {
+      isAutoTracking = false;
+      printlnAll();
+      printlnAll(F(">>> [POT OVERRIDE] Manual potentiometer turned! Switched to MANUAL Mode."));
     }
 
-    // Only move if pot is turned intentionally by > 120 ADC counts (avoids floating pin noise)
-    if (abs(rawPot - lastPotVal) > 120) {
-      lastPotVal = rawPot;
-      float potAngle = ((rawPot / 4095.0f) * 80.0f) - 40.0f;
-      if (fabs(potAngle - currentAngle) >= 1.0f) {
-        lastTrackingStatus = "MANUAL (Potentiometer Control)";
-        moveToAngle(potAngle, TRACKING_SPEED_US);
-      }
+    // Determine status description based on position
+    if (currentPotAngle == 0.0f) {
+      lastTrackingStatus = "MANUAL: 0.0 deg ZERO (START)";
+    } else if (currentPotAngle > 0.0f) {
+      lastTrackingStatus = "MANUAL: RIGHT (+ POSITIVE)";
+    } else {
+      lastTrackingStatus = "MANUAL: LEFT (- NEGATIVE)";
     }
+
+    // Move solar cells slats to match potentiometer angle
+    moveToAngle(currentPotAngle, TRACKING_SPEED_US);
+
+    // Print live angle telemetry
+    printAll(F(">>> [POT ROTATION] Pot: "));
+    if (currentPotAngle >= 0) printAll(F("+"));
+    printAll(currentPotAngle, 1);
+    if (currentPotAngle == 0.0f) {
+      printAll(F(" deg [CENTER ZERO DATUM]"));
+    } else if (currentPotAngle > 0.0f) {
+      printAll(F(" deg [RIGHT / POSITIVE (+)]"));
+    } else {
+      printAll(F(" deg [LEFT / NEGATIVE (-)]"));
+    }
+    printAll(F(" | Solar Slat: "));
+    if (currentAngle >= 0) printAll(F("+"));
+    printAll(currentAngle, 1);
+    printlnAll(F(" deg"));
+    Serial1.flush();
   }
 }
 
@@ -764,6 +804,10 @@ void printTelemetry() {
 
   printAll(F("           Mode: "));
   printAll(isAutoTracking ? F("AUTO (LDR)") : F("MANUAL (POT)"));
+  printAll(F(" | Pot: "));
+  if (currentPotAngle >= 0) printAll(F("+"));
+  printAll(currentPotAngle, 1);
+  if (currentPotAngle == 0.0f) printAll(F(" (ZERO)"));
   printAll(F(" | Zero: "));
   printAll(isHomed ? F("LOCKED (0.0 deg)") : F("HOMING"));
   printAll(F(" | Status: "));
@@ -934,6 +978,13 @@ void handleCommand(char* cmd) {
     printlnAll(isHomed ? F("YES (0.0 deg)") : F("NO"));
     printAll(F(" Mode           : "));
     printlnAll(isAutoTracking ? F("AUTO (LDR)") : F("MANUAL (POT)"));
+    printAll(F(" Potentiometer  : "));
+    if (currentPotAngle >= 0) printAll(F("+"));
+    printAll(currentPotAngle, 1);
+    printAll(F(" deg"));
+    if (currentPotAngle == 0.0f) printlnAll(F(" [ZERO DATUM]"));
+    else if (currentPotAngle > 0.0f) printlnAll(F(" [RIGHT / POSITIVE]"));
+    else printlnAll(F(" [LEFT / NEGATIVE]"));
     printAll(F(" Tracking Speed : "));
     printAll(TRACKING_SPEED_US);
     printlnAll(F(" us"));

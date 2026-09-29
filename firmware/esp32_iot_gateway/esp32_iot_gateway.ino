@@ -79,6 +79,7 @@ bool isLcdConnected = false;
 // =============================================================================
 struct TelemetryData {
   float angle          = 0.0f;
+  float potAngle       = 0.0f;
   char  mode[8]        = "AUTO";
   bool  homed          = false;
   float solarVoltage   = 0.0f; // V
@@ -289,6 +290,7 @@ void parseIncomingStm32Packet(const String& jsonLine) {
   if (err) return;
 
   liveData.angle        = doc["ang"]   | liveData.angle;
+  liveData.potAngle     = doc["pot"]   | liveData.potAngle;
   const char* m         = doc["mode"]  | "AUTO";
   strncpy(liveData.mode, m, sizeof(liveData.mode) - 1);
   liveData.homed        = (doc["homed"] | 0) == 1;
@@ -303,14 +305,15 @@ void parseIncomingStm32Packet(const String& jsonLine) {
   liveData.isStm32Online = true;
 
   // Echo comprehensive live telemetry to Serial Monitor
-  Serial.printf("[SOLAR-DATA] Solar: %4.2fV | Current: %4.2fA | Power: %5.2f Watts | Bat: %4.2fV | Angle: %+5.1f° | Temp: %4.1f°C | Hum: %4.1f%% | Mode: %s\n",
+  Serial.printf("[SOLAR-DATA] Solar: %4.2fV | Current: %4.2fA | Power: %5.2f Watts | Slat: %+5.1f° | Pot: %+5.1f°%s | Bat: %4.2fV | Temp: %4.1f°C | Mode: %s\n",
                 liveData.solarVoltage,
                 liveData.solarCurrent,
                 liveData.solarPower,
-                liveData.battVoltage,
                 liveData.angle,
+                liveData.potAngle,
+                (liveData.potAngle == 0.0f) ? " [ZERO]" : (liveData.potAngle > 0.0f ? " [RGT]" : " [LFT]"),
+                liveData.battVoltage,
                 liveData.temperature,
-                liveData.humidity,
                 liveData.mode);
 }
 
@@ -320,25 +323,35 @@ void parseIncomingStm32Packet(const String& jsonLine) {
 void updateLcdDisplay() {
   if (!isLcdConnected) return;
 
-  // Line 0: Voltage & Power
-  lcd.setCursor(0, 0);
-  lcd.print("V:");
-  lcd.print(liveData.solarVoltage, 1);
-  lcd.print("V P:");
-  lcd.print(liveData.solarPower, 1);
-  lcd.print("W   ");
+  char line0[17];
+  char line1[17];
 
-  // Line 1: Slat Angle, Temperature & Mode
+  if (strcmp(liveData.mode, "MAN") == 0 || strcmp(liveData.mode, "MANUAL") == 0) {
+    // ---------------- MANUAL POTENTIOMETER DISPLAY ----------------
+    // Line 0: Potentiometer Angle with Center ZERO / Direction indicator
+    if (fabs(liveData.potAngle) <= 0.5f) {
+      snprintf(line0, sizeof(line0), "POT :  0.0 [ZERO]");
+    } else if (liveData.potAngle > 0.5f) {
+      snprintf(line0, sizeof(line0), "POT :%+5.1f (RGT)", liveData.potAngle);
+    } else {
+      snprintf(line0, sizeof(line0), "POT :%+5.1f (LFT)", liveData.potAngle);
+    }
+
+    // Line 1: Solar Cells Actual Slat Angle & Real Power Output
+    snprintf(line1, sizeof(line1), "CELL:%+5.1f P:%4.1fW", liveData.angle, liveData.solarPower);
+  } else {
+    // ---------------- AUTOMATIC SUN TRACKING DISPLAY ----------------
+    // Line 0: Solar Generation (Voltage & Power)
+    snprintf(line0, sizeof(line0), "V:%4.1fV P:%4.1fW  ", liveData.solarVoltage, liveData.solarPower);
+
+    // Line 1: Slat Angle, Temperature, and AUTO indicator
+    snprintf(line1, sizeof(line1), "A:%+4.0f%c T:%2.0fC AUTO", liveData.angle, (char)223, liveData.temperature);
+  }
+
+  lcd.setCursor(0, 0);
+  lcd.print(line0);
   lcd.setCursor(0, 1);
-  lcd.print("A:");
-  if (liveData.angle >= 0) lcd.print("+");
-  lcd.print(liveData.angle, 0);
-  lcd.print((char)223); // degree symbol
-  lcd.print(" T:");
-  lcd.print((int)liveData.temperature);
-  lcd.print("C ");
-  lcd.print(liveData.mode);
-  lcd.print(" ");
+  lcd.print(line1);
 }
 
 // =============================================================================
@@ -358,6 +371,7 @@ void pushTelemetryToFirebase() {
 
   StaticJsonDocument<256> doc;
   doc["angle"]         = liveData.angle;
+  doc["pot_angle"]     = liveData.potAngle;
   doc["mode"]          = liveData.mode;
   doc["solar_voltage"] = liveData.solarVoltage;
   doc["solar_current"] = liveData.solarCurrent;
@@ -397,6 +411,7 @@ void handleGetTelemetry() {
   server.sendHeader("Access-Control-Allow-Headers", "*");
   StaticJsonDocument<384> doc;
   doc["angle"]          = liveData.angle;
+  doc["pot_angle"]      = liveData.potAngle;
   doc["mode"]           = liveData.mode;
   doc["homed"]          = liveData.homed;
   doc["solar_voltage"]  = liveData.solarVoltage;
@@ -463,6 +478,7 @@ void publishTelemetryMqtt() {
 
   StaticJsonDocument<384> doc;
   doc["angle"]         = liveData.angle;
+  doc["pot_angle"]     = liveData.potAngle;
   doc["mode"]          = liveData.mode;
   doc["homed"]         = liveData.homed;
   doc["solar_voltage"] = liveData.solarVoltage;

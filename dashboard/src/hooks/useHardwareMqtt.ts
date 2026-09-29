@@ -5,6 +5,7 @@ type MqttClient = ReturnType<typeof mqtt.connect>;
 
 export interface HardwareTelemetry {
   angle: number;
+  pot_angle?: number;
   mode: string;
   homed: boolean | number;
   solar_voltage: number;

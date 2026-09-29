@@ -130,10 +130,26 @@ export const TrackingDial: React.FC<TrackingDialProps> = ({ tracking }) => {
         </div>
 
         <div className="bg-slate-50 p-2 rounded-lg border border-slate-200/60">
-          <div className="text-slate-500 text-[10px]">Target vs Actual</div>
+          <div className="text-slate-500 text-[10px]">
+            {tracking.trackingMode === 'MANUAL' ? 'Manual Target vs Cell' : 'Target vs Actual'}
+          </div>
           <div className="font-bold text-slate-800 text-xs flex items-center justify-between">
-            <span>T: {tracking.targetAngle}°</span>
-            <span className="text-emerald-700">A: {tracking.actualShaftAngle}°</span>
+            {tracking.trackingMode === 'MANUAL' && tracking.potAngle !== undefined ? (
+              <>
+                <span className="text-purple-700">
+                  Pot: {tracking.potAngle > 0 ? `+${tracking.potAngle}°` : `${tracking.potAngle}°`}
+                  {tracking.potAngle === 0 ? ' [0°]' : tracking.potAngle > 0 ? ' [R]' : ' [L]'}
+                </span>
+                <span className="text-emerald-700">
+                  Cell: {tracking.actualShaftAngle > 0 ? `+${tracking.actualShaftAngle}°` : `${tracking.actualShaftAngle}°`}
+                </span>
+              </>
+            ) : (
+              <>
+                <span>T: {tracking.targetAngle > 0 ? `+${tracking.targetAngle}°` : `${tracking.targetAngle}°`}</span>
+                <span className="text-emerald-700">A: {tracking.actualShaftAngle > 0 ? `+${tracking.actualShaftAngle}°` : `${tracking.actualShaftAngle}°`}</span>
+              </>
+            )}
           </div>
         </div>
 
