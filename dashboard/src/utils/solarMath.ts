@@ -46,6 +46,10 @@ export function generateDiurnalCurve(currentHourDecimal: number): HourlyGenerati
         fixedW: 0,
         motorW: 0,
         sunElevation: 0,
+        solarVoltage: 0.0,
+        battVoltage: 12.4,
+        temperature: 24.5,
+        humidity: 70,
       });
       continue;
     }
@@ -61,6 +65,15 @@ export function generateDiurnalCurve(currentHourDecimal: number): HourlyGenerati
     const isStepTime = (h * 10) % 5 === 0;
     const motorW = isStepTime ? 6.5 : 0.8;
 
+    // Realistic diurnal voltage curve (Solar PV: 11.2V - 14.8V under sunlight, Battery: 12.5V - 13.8V float)
+    const solarVoltage = Number((10.8 + Math.pow(sunSin, 0.3) * 3.8).toFixed(2));
+    const battVoltage = Number((12.5 + sunSin * 1.2).toFixed(2));
+
+    // Diurnal temperature (°C) & humidity (%) profile (DHT11 Ambient)
+    const tempFactor = Math.sin(Math.max(0, (h - 7) / 10) * Math.PI);
+    const temperature = Number((27.5 + Math.max(0, tempFactor) * 10.5).toFixed(1));
+    const humidity = Number((62.0 - Math.max(0, tempFactor) * 20.0).toFixed(0));
+
     points.push({
       time: timeStr,
       hour: h,
@@ -70,6 +83,10 @@ export function generateDiurnalCurve(currentHourDecimal: number): HourlyGenerati
       fixedW: h <= currentHourDecimal ? fixedW : Number((fixedW * 0.98).toFixed(1)),
       motorW,
       sunElevation: Number((sunSin * 72).toFixed(1)),
+      solarVoltage,
+      battVoltage,
+      temperature,
+      humidity,
     });
 
   }

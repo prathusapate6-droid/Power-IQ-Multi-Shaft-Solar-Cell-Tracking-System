@@ -66,6 +66,10 @@ export interface HourlyGenerationPoint {
   fixedW: number;
   motorW: number;
   sunElevation: number;
+  solarVoltage?: number;
+  battVoltage?: number;
+  temperature?: number;
+  humidity?: number;
 }
 
 

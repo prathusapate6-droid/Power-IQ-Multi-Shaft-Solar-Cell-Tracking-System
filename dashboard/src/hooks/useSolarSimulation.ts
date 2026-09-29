@@ -123,6 +123,10 @@ export function useSolarSimulation() {
             trackingW: solarPowerW,
             fixedW: Number((solarPowerW * 0.72).toFixed(1)),
             sunElevation: Math.max(10, Math.round(90 - Math.abs(actualShaftAngle))),
+            solarVoltage: solarVoltageV > 0 ? solarVoltageV : p.solarVoltage,
+            battVoltage: battVoltageV > 0 ? battVoltageV : p.battVoltage,
+            temperature: temperatureC > 0 ? temperatureC : p.temperature,
+            humidity: (telemetry && telemetry.humidity) ? telemetry.humidity : p.humidity,
           };
         }
         return p;
