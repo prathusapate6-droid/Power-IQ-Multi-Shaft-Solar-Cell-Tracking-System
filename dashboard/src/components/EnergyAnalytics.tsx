@@ -39,6 +39,7 @@ interface DailyRecord {
 }
 
 const STORAGE_KEY = 'power_iq_daily_telemetry_v4';
+const FIREBASE_RTDB_URL = 'https://engineering-project-hub-default-rtdb.firebaseio.com';
 
 function generateDayChart(peakW: number) {
   const chart = [];
@@ -182,6 +183,41 @@ export const EnergyAnalytics: React.FC<EnergyAnalyticsProps> = ({ solar }) => {
       return newMap;
     });
   }, [solar]);
+
+  // 1. Initial Cloud Sync from Firebase Realtime Database
+  useEffect(() => {
+    fetch(`${FIREBASE_RTDB_URL}/power_iq/daily_records.json`)
+      .then((res) => res.json())
+      .then((cloudData) => {
+        if (cloudData && typeof cloudData === 'object') {
+          setRecords((prev) => {
+            const merged = { ...prev, ...cloudData };
+            try {
+              localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
+            } catch {}
+            return merged;
+          });
+        }
+      })
+      .catch((err) => console.log('[Firebase RTDB] Cloud fetch offline, using local cache:', err));
+  }, []);
+
+  // 2. Debounced push of today's record to Firebase Cloud Realtime Database
+  useEffect(() => {
+    const today = getTodayStr();
+    const todayRecord = records[today];
+    if (!todayRecord) return;
+
+    const timer = setTimeout(() => {
+      fetch(`${FIREBASE_RTDB_URL}/power_iq/daily_records/${today}.json`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(todayRecord),
+      }).catch(() => {});
+    }, 4000);
+
+    return () => clearTimeout(timer);
+  }, [records]);
 
   // Quick Date Selectors
   const selectQuickDate = (offsetDays: number) => {

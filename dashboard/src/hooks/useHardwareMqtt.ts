@@ -82,12 +82,38 @@ export function useHardwareMqtt() {
       setIsMqttConnected(false);
     });
 
-    // Hardware watchdog: marks offline if no packet received within 6 seconds
+    // 1. Initial fetch from Firebase Realtime Database for instant data on page load
+    fetch('https://engineering-project-hub-default-rtdb.firebaseio.com/power_iq/telemetry.json')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data && typeof data === 'object' && data.solar_voltage !== undefined) {
+          if (!lastPacketRef.current || Date.now() - lastPacketRef.current > 4000) {
+            setTelemetry(data as HardwareTelemetry);
+            setIsHardwareOnline(data.stm32_online ?? true);
+          }
+        }
+      })
+      .catch(() => {});
+
+    // 2. Hardware watchdog + Firebase Cloud fallback
     const watchdogTimer = setInterval(() => {
-      if (lastPacketRef.current > 0 && Date.now() - lastPacketRef.current > 6000) {
+      const now = Date.now();
+      if (lastPacketRef.current > 0 && now - lastPacketRef.current > 6000) {
         setIsHardwareOnline(false);
       }
-    }, 2000);
+      // If no recent MQTT packet in last 3.5 seconds, fetch live state from Firebase RTDB
+      if (!lastPacketRef.current || now - lastPacketRef.current > 3500) {
+        fetch('https://engineering-project-hub-default-rtdb.firebaseio.com/power_iq/telemetry.json')
+          .then((res) => res.json())
+          .then((data) => {
+            if (data && typeof data === 'object' && data.solar_voltage !== undefined) {
+              setTelemetry(data as HardwareTelemetry);
+              setIsHardwareOnline(data.stm32_online ?? true);
+            }
+          })
+          .catch(() => {});
+      }
+    }, 3000);
 
     return () => {
       clearInterval(watchdogTimer);
