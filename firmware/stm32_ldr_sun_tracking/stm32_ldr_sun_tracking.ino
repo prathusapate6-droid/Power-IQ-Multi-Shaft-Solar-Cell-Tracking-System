@@ -61,8 +61,9 @@ int TRACKING_SPEED_US = 3500;     // Speed during Sun Tracking motion (default: 
 #define PIN_HALL_HOME PB11  // Hall-effect Home Sensor (Active LOW)
 #define PIN_DHT11 PB5       // DHT11 Data Pin
 
-#define PIN_POT_MANUAL PB0  // 10k Potentiometer (ADC1_IN8)
-#define PIN_BTN_MODE PB12   // Mode Toggle Button (Active LOW)
+#define PIN_POT_MANUAL   PB0   // 10k Potentiometer (ADC1_IN8)
+#define PIN_BTN_MODE     PB12  // Mode Toggle Button Primary (Active LOW/HIGH)
+#define PIN_BTN_MODE_ALT PB13  // Mode Toggle Button Alternate (Active LOW/HIGH)
 
 // ---------------- POWER MONITORING PINS (SOLAR & BATTERY) ----------------
 #define PIN_SOLAR_VOLT PA6  // Solar Voltage Analog Input
@@ -340,6 +341,7 @@ void setup() {
 
   pinMode(PIN_POT_MANUAL, INPUT);
   pinMode(PIN_BTN_MODE, INPUT_PULLUP);
+  pinMode(PIN_BTN_MODE_ALT, INPUT_PULLUP);
 
   pinMode(PIN_SOLAR_VOLT, INPUT);
   pinMode(PIN_SOLAR_CURR, INPUT);
@@ -426,25 +428,39 @@ void loop() {
 
 
 void handleManualControls() {
-  // 1. Mode Toggle Button Debouncing (PB12)
-  static bool lastBtnStable = HIGH;
-  static bool lastBtnReading = HIGH;
-  static unsigned long lastDebounceMs = 0;
-
-  bool reading = digitalRead(PIN_BTN_MODE);
-  if (reading != lastBtnReading) {
-    lastDebounceMs = millis();
-    lastBtnReading = reading;
+  // 1. Dual-Pin (PB12 & PB13) Auto-Sensing Mode Toggle Button
+  // Automatically detects idle level (Active LOW to GND, or Active HIGH to 3.3V)
+  static bool idle12 = HIGH;
+  static bool idle13 = HIGH;
+  static bool baselineSet = false;
+  if (!baselineSet && millis() > 300) {
+    idle12 = digitalRead(PIN_BTN_MODE);
+    idle13 = digitalRead(PIN_BTN_MODE_ALT);
+    baselineSet = true;
   }
 
-  if ((millis() - lastDebounceMs) > 50) {
-    if (reading != lastBtnStable) {
-      lastBtnStable = reading;
-      // Button pressed (Active LOW)
-      if (lastBtnStable == LOW) {
+  bool pressed12 = baselineSet && (digitalRead(PIN_BTN_MODE) != idle12);
+  bool pressed13 = baselineSet && (digitalRead(PIN_BTN_MODE_ALT) != idle13);
+  bool isPressed = pressed12 || pressed13;
+
+  static bool lastRawPressed = false;
+  static bool lastStablePressed = false;
+  static unsigned long lastDebounceMs = 0;
+
+  if (isPressed != lastRawPressed) {
+    lastDebounceMs = millis();
+    lastRawPressed = isPressed;
+  }
+
+  if ((millis() - lastDebounceMs) > 40) {
+    if (isPressed != lastStablePressed) {
+      lastStablePressed = isPressed;
+      if (lastStablePressed) {
         isAutoTracking = !isAutoTracking;
         printlnAll();
-        printAll(F(">>> [MODE SWITCH] Mode changed by hardware button to: "));
+        printAll(F(">>> [MODE SWITCH] Mode toggled by hardware button ("));
+        printAll(pressed12 ? F("PB12") : F("PB13"));
+        printAll(F(") to: "));
         printlnAll(isAutoTracking ? F("AUTO (LDR Sun Tracking)") : F("MANUAL (Command / Pot)"));
         printlnAll();
         Serial1.flush();
@@ -718,18 +734,18 @@ void executeSunTracking() {
 // =============================================================================
 void printTelemetry() {
   printlnAll(F("--------------------------------------------------------------------------------"));
-  printAll(F("[POWER-IQ] Ang: "));
+  printAll(F("[SOLAR-DATA] Solar: "));
+  printAll(solarVoltage, 2);
+  printAll(F("V | Current: "));
+  printAll(solarCurrent, 2);
+  printAll(F("A | Power: "));
+  printAll(solarPower, 2);
+  printAll(F(" Watts | Bat: "));
+  printAll(battVoltage, 2);
+  printAll(F("V | Angle: "));
   if (currentAngle >= 0) printAll(F("+"));
   printAll(currentAngle, 1);
-  printAll(F(" deg | Vpv: "));
-  printAll(solarVoltage, 2);
-  printAll(F("V | Ipv: "));
-  printAll(solarCurrent, 2);
-  printAll(F("A | Ppv: "));
-  printAll(solarPower, 2);
-  printAll(F("W | Bat: "));
-  printAll(battVoltage, 2);
-  printlnAll(F("V"));
+  printlnAll(F(" deg"));
 
   printAll(F("           LDR Top: "));
   printAll(lastTopVal);
@@ -895,6 +911,20 @@ void handleCommand(char* cmd) {
       printlnAll(digitalRead(PIN_DHT11) == HIGH ? F("IDLE HIGH (Pull-up OK)") : F("STUCK LOW (Short/GND)"));
       printlnAll(F("[DHT11] Troubleshooting: Verify VCC (3.3V/5V), GND, and PB5 signal wire.\n"));
     }
+  } else if (strcasecmp(cmd, "BTN") == 0 || strcasecmp(cmd, "BUTTON") == 0) {
+    printlnAll(F("\n--- HARDWARE BUTTON DIAGNOSTIC ---"));
+    printAll(F(" PB12 (Primary)   : "));
+    printlnAll(digitalRead(PIN_BTN_MODE) == HIGH ? F("HIGH (1)") : F("LOW (0)"));
+    printAll(F(" PB13 (Alternate) : "));
+    printlnAll(digitalRead(PIN_BTN_MODE_ALT) == HIGH ? F("HIGH (1)") : F("LOW (0)"));
+    printAll(F(" Current Mode     : "));
+    printlnAll(isAutoTracking ? F("AUTO (LDR)") : F("MANUAL (Command/Pot)"));
+    printlnAll(F(" Wiring Guide     : Connect button between PB12 (or PB13) and GND."));
+    printlnAll(F("                    Pressing button will toggle AUTO <-> MANUAL.\n"));
+  } else if (strcasecmp(cmd, "MODE") == 0 || strcasecmp(cmd, "TOGGLE") == 0) {
+    isAutoTracking = !isAutoTracking;
+    printAll(F("\n[CMD] Mode toggled via command to: "));
+    printlnAll(isAutoTracking ? F("AUTO (LDR Sun Tracking)") : F("MANUAL (Command / Pot)"));
   } else if (strcasecmp(cmd, "STATUS") == 0) {
     printlnAll(F("\n--- SYSTEM PARAMETERS ---"));
     printAll(F(" Angle          : "));
@@ -1015,6 +1045,8 @@ void printHelp() {
   printlnAll(F("========================================================"));
   printlnAll(F(" AUTO             : Enable continuous automatic sun tracking"));
   printlnAll(F(" MANUAL           : Pause auto tracking (Potentiometer active)"));
+  printlnAll(F(" MODE / TOGGLE    : Toggle between AUTO and MANUAL mode    "));
+  printlnAll(F(" BTN / BUTTON     : Test PB12 & PB13 hardware button pins  "));
   printlnAll(F(" GOTO <deg>       : Move slats to specific angle (-40 to +40)"));
   printlnAll(F(" ZERO             : Calibrate current position as 0.0 deg  "));
   printlnAll(F(" HOME             : Re-run Hall-effect ZERO calibration    "));

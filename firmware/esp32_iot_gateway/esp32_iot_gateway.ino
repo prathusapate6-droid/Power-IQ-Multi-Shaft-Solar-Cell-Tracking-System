@@ -302,11 +302,16 @@ void parseIncomingStm32Packet(const String& jsonLine) {
   liveData.lastUpdateMs  = millis();
   liveData.isStm32Online = true;
 
-  // Echo to Serial for developer monitoring
-  Serial.print("[STM32-DATA] Ang: "); Serial.print(liveData.angle, 1);
-  Serial.print("° | V: "); Serial.print(liveData.solarVoltage, 1);
-  Serial.print("V | P: "); Serial.print(liveData.solarPower, 1);
-  Serial.print("W | Mode: "); Serial.println(liveData.mode);
+  // Echo comprehensive live telemetry to Serial Monitor
+  Serial.printf("[SOLAR-DATA] Solar: %4.2fV | Current: %4.2fA | Power: %5.2f Watts | Bat: %4.2fV | Angle: %+5.1f° | Temp: %4.1f°C | Hum: %4.1f%% | Mode: %s\n",
+                liveData.solarVoltage,
+                liveData.solarCurrent,
+                liveData.solarPower,
+                liveData.battVoltage,
+                liveData.angle,
+                liveData.temperature,
+                liveData.humidity,
+                liveData.mode);
 }
 
 // =============================================================================
