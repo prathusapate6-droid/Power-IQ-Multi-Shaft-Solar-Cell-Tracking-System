@@ -75,9 +75,9 @@ int TRACKING_SPEED_US = 3500;     // Speed during Sun Tracking motion (default: 
 const float VOLT_DIVIDER_RATIO = (33000.0f + 6800.0f) / 6800.0f;  // 5.8529
 float refVoltage = 3.3f;                                          // STM32 ADC Reference Voltage
 
-float currentSensitivity = 0.185f;  // Calibrated for ACS712-05B: 185 mV/A (adjustable via SENS command)
+float currentSensitivity = 0.0115f; // Calibrated for 2.0A max panel (~1.8A-2.0A under active generation)
 float currentZeroOffset = 2.50f;    // Auto-calibrated at boot (Nominal 2.5V for 5V ACS712)
-float currentDeadbandVolt = 0.012f; // 12 mV (~0.06A) responsive deadband (allows small motor currents)
+float currentDeadbandVolt = 0.0035f; // 3.5 mV deadband for solid 0.00A idle
 float lastCurrentDiffVolt = 0.0f;
 float lastAdcCurrS = 2.50f;
 
@@ -668,15 +668,22 @@ void updatePowerSensors() {
   lastCurrentDiffVolt = diffVolt;
   float absDiff = fabs(diffVolt);
 
-  // Responsive deadband: 12mV (~0.06A) allows motor and light currents to register
-  if (absDiff < currentDeadbandVolt) {
-    solarCurrent = 0.0f;
-  } else {
-    // Bidirectional sensing: absDiff works for both wiring polarities
-    solarCurrent = absDiff / currentSensitivity;
-    if (solarCurrent < 0.03f) solarCurrent = 0.0f;   // Clean noise floor (< 30mA)
-    if (solarCurrent > 2.05f) solarCurrent = 2.00f;  // Saturation cap
+  // Responsive deadband: 3.5mV prevents idle noise, scales active current up to 2.0A
+  float rawCurrent = 0.0f;
+  if (absDiff >= currentDeadbandVolt) {
+    rawCurrent = absDiff / currentSensitivity;
+    if (rawCurrent > 2.05f) rawCurrent = 2.00f;  // Panel 2A physical saturation cap
   }
+
+  // Smooth filter (EMA) to prevent single-sample jumping
+  static float filteredCurr = 0.0f;
+  if (rawCurrent <= 0.0f) {
+    filteredCurr = (filteredCurr * 0.50f);
+    if (filteredCurr < 0.04f) filteredCurr = 0.0f;
+  } else {
+    filteredCurr = (filteredCurr * 0.40f) + (rawCurrent * 0.60f);
+  }
+  solarCurrent = filteredCurr;
 
   // 3. Solar Power (Watts)
   solarPower = solarVoltage * solarCurrent;
@@ -1007,7 +1014,7 @@ void motorOn() {
 }
 
 void motorOff() {
-  if (!manualMotorHold) {
+  if (!manualMotorHold && motorHoldUntilMs <= millis()) {
     digitalWrite(PIN_ENABLE, HIGH);
   }
 }
@@ -1154,18 +1161,18 @@ void handleCommand(char* cmd) {
     printAll(F("V | Diff: ")); printAll(lastCurrentDiffVolt, 3);
     printAll(F("V\n[ACS712] Current: ")); printAll(solarCurrent, 2);
     printAll(F("A | Power: ")); printAll(solarPower, 2);
-    printAll(F("W | Sens: ")); printAll(currentSensitivity, 3);
+    printAll(F("W | Sens: ")); printAll(currentSensitivity, 4);
     printAll(F(" V/A | Coils: "));
     printlnAll(digitalRead(PIN_ENABLE) == LOW ? F("ON") : F("OFF"));
     printBar();
   } else if (strncasecmp(cmd, "CAL_AMP ", 8) == 0 || strncasecmp(cmd, "AMP ", 4) == 0) {
     float targetAmp = parseCustomFloat(cmd + (*cmd == 'C' ? 8 : 4));
-    if (targetAmp > 0.05f && targetAmp <= 5.0f && fabs(lastCurrentDiffVolt) > 0.02f) {
+    if (targetAmp > 0.05f && targetAmp <= 5.0f && fabs(lastCurrentDiffVolt) > 0.005f) {
       currentSensitivity = fabs(lastCurrentDiffVolt) / targetAmp;
       printAll(F("\n[CMD] Current calibrated to: "));
       printAll(targetAmp, 2);
       printAll(F(" A (Sens: "));
-      printAll(currentSensitivity, 3);
+      printAll(currentSensitivity, 4);
       printlnAll(F(" V/A)\n"));
     }
   } else if (strcasecmp(cmd, "DHT") == 0 || strcasecmp(cmd, "TEMP") == 0) {
