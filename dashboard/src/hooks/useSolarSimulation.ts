@@ -11,6 +11,8 @@ import type {
 } from '../types/dashboard';
 import { useHardwareMqtt } from './useHardwareMqtt';
 
+import { generateDiurnalCurve } from '../utils/solarMath';
+
 export function useSolarSimulation() {
   const [isEmergencyStopped, setIsEmergencyStopped] = useState<boolean>(false);
   const [isMotorMoving, setIsMotorMoving] = useState<boolean>(false);
@@ -23,29 +25,14 @@ export function useSolarSimulation() {
     sendCommand,
   } = useHardwareMqtt();
 
-  // Dynamic Diurnal / Historical points based on real hardware data
-  const [diurnalData, setDiurnalData] = useState<HourlyGenerationPoint[]>(() => {
-    const points: HourlyGenerationPoint[] = [];
-    for (let h = 6; h <= 18; h += 0.5) {
-      const timeStr = `${Math.floor(h).toString().padStart(2, '0')}:${h % 1 === 0 ? '00' : '30'}`;
-      points.push({
-        time: timeStr,
-        hour: h,
-        trackingKw: 0,
-        fixedKw: 0,
-        trackingW: 0,
-        fixedW: 0,
-        motorW: 0,
-        sunElevation: 0,
-      });
-    }
-
-    return points;
-  });
-
   // Current real hour in decimal (e.g. 14.5 = 2:30 PM)
   const now = new Date();
   const hourDecimal = now.getHours() + now.getMinutes() / 60;
+
+  // Dynamic Diurnal / Historical points based on real hardware data & 200W benchmark curve
+  const [diurnalData, setDiurnalData] = useState<HourlyGenerationPoint[]>(() => {
+    return generateDiurnalCurve(hourDecimal);
+  });
 
   // Real Hardware Values from STM32 + ESP32
   const actualShaftAngle = telemetry ? Number(telemetry.angle.toFixed(1)) : 0.0;
@@ -105,18 +92,18 @@ export function useSolarSimulation() {
 
     // Update the diurnal data curve around the current time
     setDiurnalData((prev) => {
+      if (solarPowerW <= 0) return prev; // Preserve full 200W benchmark curve when no load is attached
+
       const curH = new Date().getHours() + new Date().getMinutes() / 60;
-      // If daytime (6-18), track current hour. If bench testing at night, map to 12:00 noon slot
       const targetH = curH >= 6 && curH <= 18 ? curH : 12;
       return prev.map((p) => {
         if (Math.abs(p.hour - targetH) < 0.6) {
-          const w = solarPowerW > 0 ? solarPowerW : 0;
           return {
             ...p,
-            trackingKw: solarPowerKw > 0 ? solarPowerKw : 0.05,
-            fixedKw: solarPowerKw > 0 ? Number((solarPowerKw * 0.72).toFixed(3)) : 0.03,
-            trackingW: w,
-            fixedW: Number((w * 0.72).toFixed(1)),
+            trackingKw: solarPowerKw,
+            fixedKw: Number((solarPowerKw * 0.72).toFixed(3)),
+            trackingW: solarPowerW,
+            fixedW: Number((solarPowerW * 0.72).toFixed(1)),
             sunElevation: Math.max(10, Math.round(90 - Math.abs(actualShaftAngle))),
           };
         }

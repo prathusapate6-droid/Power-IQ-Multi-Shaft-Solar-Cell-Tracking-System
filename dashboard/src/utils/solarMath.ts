@@ -50,12 +50,12 @@ export function generateDiurnalCurve(currentHourDecimal: number): HourlyGenerati
       continue;
     }
 
-    // Solar tracking maintains normal incidence -> broader, fuller generation curve
+    // Solar tracking maintains normal incidence -> broader, fuller generation curve (200W scale)
     // Fixed PV suffers cosine loss in morning/afternoon -> narrower peak curve
-    const trackingKw = Number((Math.pow(sunSin, 0.62) * 3.12).toFixed(2));
-    const fixedKw = Number((Math.pow(sunSin, 1.45) * 2.38).toFixed(2));
-    const trackingW = Number((trackingKw * 1000).toFixed(1));
-    const fixedW = Number((fixedKw * 1000).toFixed(1));
+    const trackingW = Number((Math.pow(sunSin, 0.62) * 175.0).toFixed(1));
+    const fixedW = Number((Math.pow(sunSin, 1.45) * 128.0).toFixed(1));
+    const trackingKw = Number((trackingW / 1000).toFixed(3));
+    const fixedKw = Number((fixedW / 1000).toFixed(3));
     
     // Intermittent motor active during small adjustment windows (e.g. 40W active, 4W standby)
     const isStepTime = (h * 10) % 5 === 0;
