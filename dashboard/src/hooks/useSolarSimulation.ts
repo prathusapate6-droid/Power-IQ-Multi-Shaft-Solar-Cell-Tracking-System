@@ -31,7 +31,23 @@ export function useSolarSimulation() {
 
   // Dynamic Diurnal / Historical points based on real hardware data & 200W benchmark curve
   const [diurnalData, setDiurnalData] = useState<HourlyGenerationPoint[]>(() => {
+    try {
+      const saved = localStorage.getItem('power_iq_overview_diurnal_v3');
+      if (saved) {
+        return JSON.parse(saved);
+      }
+    } catch {}
     return generateDiurnalCurve(hourDecimal);
+  });
+
+  // Persist energy today so refreshing the browser never resets harvested energy to 0
+  const [persistedEnergyWh, setPersistedEnergyWh] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('power_iq_today_energy_wh');
+      return saved ? parseFloat(saved) : 0.0;
+    } catch {
+      return 0.0;
+    }
   });
 
   // Real Hardware Values from STM32 + ESP32
@@ -42,7 +58,9 @@ export function useSolarSimulation() {
   const solarCurrentA = telemetry ? Number(telemetry.solar_current.toFixed(2)) : 0.0;
   const solarPowerW = telemetry ? Number(telemetry.solar_power.toFixed(2)) : 0.0;
   const solarPowerKw = Number((solarPowerW / 1000).toFixed(3));
-  const energyTodayWh = telemetry ? Number(telemetry.energy_wh.toFixed(2)) : 0.0;
+  
+  const rawEnergyTodayWh = telemetry ? Number(telemetry.energy_wh.toFixed(2)) : 0.0;
+  const energyTodayWh = Math.max(rawEnergyTodayWh, persistedEnergyWh);
   const energyTodayKwh = Number((energyTodayWh / 1000).toFixed(3));
   const battVoltageV = telemetry ? Number(telemetry.batt_voltage.toFixed(2)) : 0.0;
   const temperatureC = telemetry ? Number(telemetry.temperature.toFixed(1)) : 0.0;
@@ -96,7 +114,7 @@ export function useSolarSimulation() {
 
       const curH = new Date().getHours() + new Date().getMinutes() / 60;
       const targetH = curH >= 6 && curH <= 18 ? curH : 12;
-      return prev.map((p) => {
+      const updated = prev.map((p) => {
         if (Math.abs(p.hour - targetH) < 0.6) {
           return {
             ...p,
@@ -109,8 +127,19 @@ export function useSolarSimulation() {
         }
         return p;
       });
+      try {
+        localStorage.setItem('power_iq_overview_diurnal_v3', JSON.stringify(updated));
+      } catch {}
+      return updated;
     });
-  }, [telemetry, solarPowerKw, solarPowerW, actualShaftAngle]);
+
+    if (telemetry.energy_wh > 0 && telemetry.energy_wh > persistedEnergyWh) {
+      setPersistedEnergyWh(telemetry.energy_wh);
+      try {
+        localStorage.setItem('power_iq_today_energy_wh', telemetry.energy_wh.toString());
+      } catch {}
+    }
+  }, [telemetry, solarPowerKw, solarPowerW, actualShaftAngle, persistedEnergyWh]);
 
 
   // 8 Parallel Shafts Data synchronized to the real physical slat angle
