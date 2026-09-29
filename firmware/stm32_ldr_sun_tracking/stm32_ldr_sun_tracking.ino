@@ -194,58 +194,108 @@ float parseCustomFloat(const char* p) {
   return sign * val;
 }
 
-// ---------------- DIRECT DHT11 BITBANG WITH INTERRUPT PROTECTION ----------------
+// ---------------- ULTRA-ROBUST CYCLE-COUNTING DHT11 / DHT22 READER ----------------
+// Immune to STM32 SysTick overflow during noInterrupts()
+// Uses ratio of pulse widths (highCycles vs lowCycles) for guaranteed decoding
 bool readDHT11(uint8_t pin, float& temp, float& humidity) {
   uint8_t data[5] = { 0, 0, 0, 0, 0 };
+
+  // 1. Host Start Signal: Pull bus LOW for 20ms
   pinMode(pin, OUTPUT);
   digitalWrite(pin, LOW);
   delay(20);
-  digitalWrite(pin, HIGH);
-  delayMicroseconds(30);
-  pinMode(pin, INPUT_PULLUP);
 
-  unsigned long timeout = micros();
-  while (digitalRead(pin) == HIGH) {
-    if (micros() - timeout > 100) return false;
-  }
-  timeout = micros();
-  while (digitalRead(pin) == LOW) {
-    if (micros() - timeout > 100) return false;
-  }
-  timeout = micros();
-  while (digitalRead(pin) == HIGH) {
-    if (micros() - timeout > 100) return false;
-  }
-
+  // 2. Release bus and configure as INPUT_PULLUP with interrupts locked
   noInterrupts();
-  for (int i = 0; i < 40; i++) {
-    timeout = micros();
-    while (digitalRead(pin) == LOW) {
-      if (micros() - timeout > 100) {
-        interrupts();
-        return false;
-      }
-    }
-    unsigned long t = micros();
-    while (digitalRead(pin) == HIGH) {
-      if (micros() - timeout > 150) {
-        interrupts();
-        return false;
-      }
-    }
-    if ((micros() - t) > 40) {
-      data[i / 8] |= (1 << (7 - (i % 8)));
-    }
-  }
-  interrupts();
+  pinMode(pin, INPUT_PULLUP);
+  delayMicroseconds(30);
 
-  if (data[4] == ((data[0] + data[1] + data[2] + data[3]) & 0xFF)) {
-    if (data[0] != 0 || data[2] != 0) {
-      humidity = (float)data[0];
-      temp = (float)data[2];
-      return true;
+  // 3. Timing-critical pulse measurement (Timeout ~250us @ 72MHz)
+  const uint32_t MAX_CYCLES = 12000;
+  uint32_t cycles[80];
+
+  // Wait for sensor to pull line LOW (acknowledge start signal)
+  uint32_t count = 0;
+  while (digitalRead(pin) == HIGH) {
+    if (++count >= MAX_CYCLES) {
+      interrupts();
+      return false;
     }
   }
+
+  // Sensor response: 80us LOW
+  count = 0;
+  while (digitalRead(pin) == LOW) {
+    if (++count >= MAX_CYCLES) {
+      interrupts();
+      return false;
+    }
+  }
+
+  // Sensor response: 80us HIGH
+  count = 0;
+  while (digitalRead(pin) == HIGH) {
+    if (++count >= MAX_CYCLES) {
+      interrupts();
+      return false;
+    }
+  }
+
+  // Read 40 data bits (80 alternating pulses: 40 LOW + 40 HIGH)
+  for (int i = 0; i < 80; i += 2) {
+    // 50us LOW pulse (bit start marker)
+    count = 0;
+    while (digitalRead(pin) == LOW) {
+      if (++count >= MAX_CYCLES) {
+        interrupts();
+        return false;
+      }
+    }
+    cycles[i] = count;
+
+    // HIGH pulse (26-28us for bit '0', ~70us for bit '1')
+    count = 0;
+    while (digitalRead(pin) == HIGH) {
+      if (++count >= MAX_CYCLES) {
+        interrupts();
+        return false;
+      }
+    }
+    cycles[i + 1] = count;
+  }
+
+  interrupts(); // Critical timing section finished (~4ms)
+
+  // 4. Decode 40 bits
+  // In DHT protocol:
+  // Bit '0': HIGH pulse (28us) < LOW pulse (50us)
+  // Bit '1': HIGH pulse (70us) > LOW pulse (50us)
+  for (int i = 0; i < 40; i++) {
+    uint32_t lowCycles = cycles[2 * i];
+    uint32_t highCycles = cycles[2 * i + 1];
+
+    data[i / 8] <<= 1;
+    if (highCycles > lowCycles) {
+      data[i / 8] |= 1;
+    }
+  }
+
+  // 5. Verify Checksum: Byte 4 == (Byte 0 + Byte 1 + Byte 2 + Byte 3) & 0xFF
+  uint8_t checksum = (data[0] + data[1] + data[2] + data[3]) & 0xFF;
+  if (data[4] == checksum && (data[0] != 0 || data[2] != 0)) {
+    if (data[0] <= 100 && data[2] <= 80) {
+      // DHT11 format
+      humidity = (float)data[0] + (float)data[1] * 0.1f;
+      temp = (float)data[2] + (float)data[3] * 0.1f;
+    } else {
+      // DHT22 format
+      humidity = ((data[0] << 8) | data[1]) * 0.1f;
+      temp = (((data[2] & 0x7F) << 8) | data[3]) * 0.1f;
+      if (data[2] & 0x80) temp = -temp;
+    }
+    return true;
+  }
+
   return false;
 }
 
@@ -294,6 +344,7 @@ void setup() {
   pinMode(PIN_SOLAR_VOLT, INPUT);
   pinMode(PIN_SOLAR_CURR, INPUT);
   pinMode(PIN_BATT_VOLT, INPUT);
+  pinMode(PIN_DHT11, INPUT_PULLUP);  // Hold DHT11 bus idle HIGH at boot
 
   // Triple blink on boot for instant visual confirmation
   for (int b = 0; b < 3; b++) {
@@ -319,10 +370,12 @@ void setup() {
 
   // 4. Initial Sensor Readings
   updatePowerSensors();
-  updateDhtSensors();
 
-  // 5. Calibrate ZERO Datum
+  // 5. Calibrate ZERO Datum (allows DHT11 power to stabilize)
   findZeroHomeDatum();
+
+  // 6. Read Environment Sensor after homing stabilization
+  updateDhtSensors();
 
   digitalWrite(PIN_STATUS_LED, HIGH);  // LED OFF (Ready)
   printlnAll(F("[SYSTEM READY] Tracking ACTIVE @ 115200 Baud. Telemetry streaming below.\n"));
@@ -488,6 +541,7 @@ void updatePowerSensors() {
 // =============================================================================
 void updateDhtSensors() {
   unsigned long now = millis();
+  if (now < 1500) return;  // Allow sensor 1.5s power stabilization after boot
   if (now - lastDhtReadTime >= 2500) {
     lastDhtReadTime = now;
     float t = 0.0f, h = 0.0f;
@@ -824,6 +878,23 @@ void handleCommand(char* cmd) {
     printAll(F("\n[CMD] Current Zero Baseline calibrated to: "));
     printAll(currentZeroOffset, 3);
     printlnAll(F(" V -> Current is now 0.00 A\n"));
+  } else if (strcasecmp(cmd, "DHT") == 0 || strcasecmp(cmd, "TEMP") == 0) {
+    printlnAll(F("\n[DHT11] Testing sensor read on pin PB5..."));
+    float t = 0.0f, h = 0.0f;
+    if (readDHT11(PIN_DHT11, t, h)) {
+      currentTemp = t;
+      currentHumidity = h;
+      printAll(F("[DHT11] SUCCESS! Temp: "));
+      printAll(currentTemp, 1);
+      printAll(F(" C | Humidity: "));
+      printAll(currentHumidity, 1);
+      printlnAll(F(" % (Checksum Verified)\n"));
+    } else {
+      printlnAll(F("[DHT11] FAILED: No response or checksum error from PB5."));
+      printAll(F("[DHT11] Pin PB5 State: "));
+      printlnAll(digitalRead(PIN_DHT11) == HIGH ? F("IDLE HIGH (Pull-up OK)") : F("STUCK LOW (Short/GND)"));
+      printlnAll(F("[DHT11] Troubleshooting: Verify VCC (3.3V/5V), GND, and PB5 signal wire.\n"));
+    }
   } else if (strcasecmp(cmd, "STATUS") == 0) {
     printlnAll(F("\n--- SYSTEM PARAMETERS ---"));
     printAll(F(" Angle          : "));
@@ -857,6 +928,9 @@ void handleCommand(char* cmd) {
     printAll(F(" Humidity       : "));
     printAll(currentHumidity, 1);
     printlnAll(F(" %"));
+    printAll(F(" DHT11 Sensor   : "));
+    printAll(digitalRead(PIN_DHT11) == HIGH ? F("Pin PB5 IDLE HIGH (OK)") : F("Pin PB5 LOW (Check wiring)"));
+    printlnAll(currentTemp > 0.0f ? F(" [ONLINE]") : F(" [AWAITING DATA]"));
     printAll(F(" Steps/Deg      : "));
     printlnAll(STEPS_PER_DEGREE, 4);
     printAll(F(" Deadband       : "));
@@ -950,6 +1024,7 @@ void printHelp() {
   printlnAll(F(" INVERT           : Flip motor tracking direction (+/-)    "));
   printlnAll(F(" DEADBAND <n>     : Adjust optical deadband (default: 50)  "));
   printlnAll(F(" ZERO_CURR        : Auto-zero current sensor to 0.00 A     "));
+  printlnAll(F(" DHT / TEMP       : Test DHT11 temperature/humidity on PB5"));
   printlnAll(F(" STATUS           : Display system parameters & sensors     "));
   printlnAll(F(" HELP / ?         : Show this instruction guide            "));
   printlnAll(F("========================================================\n"));
