@@ -74,7 +74,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
               <span className="text-[10px] text-purple-600 font-semibold uppercase">Potentiometer:</span>
               <span className="font-bold">
                 {potAngle > 0 ? `+${potAngle}°` : `${potAngle}°`}
-                {potAngle === 0 ? ' [ZERO DATUM]' : potAngle > 0 ? ' [RIGHT (+)]' : ' [LEFT (-)]'}
+                {potAngle === 0 ? ' [0° ZERO]' : potAngle > 0 ? ' [CW (+)]' : ' [CCW (-)]'}
               </span>
             </div>
           )}

@@ -90,9 +90,10 @@ float currentHumidity = 0.0f;  // %
 unsigned long lastDhtReadTime = 0;
 
 // ---------------- KINEMATICS & BENCH CONSTANTS ----------------
+// ---------------- KINEMATICS & BENCH CONSTANTS ----------------
 const float STEPS_PER_DEGREE = 10.556f;  // 19:1 Worm gear ratio
-const float MIN_ANGLE = -40.0f;
-const float MAX_ANGLE = 40.0f;
+const float MIN_ANGLE = -45.0f;          // Hard Mechanical Structural Limit (-45.0 deg)
+const float MAX_ANGLE = 45.0f;           // Hard Mechanical Structural Limit (+45.0 deg)
 
 int deadbandThreshold = 50;
 int nightDarkThreshold = 40;
@@ -111,6 +112,7 @@ unsigned long lastTelemetryTime = 0;
 
 // ---------------- HARDWARE ON/OFF MODE SWITCH & POTENTIOMETER ----------------
 bool switchInvert = false;         // false: Switch ON (LOW to GND) = AUTO, OFF (HIGH) = MANUAL
+bool potInvert = false;            // false: Clockwise = Positive (+), Anti-Clockwise = Negative (-)
 int lastStableSwitchState = -1;    // -1 = uninitialized, 1 = ON (Closed to GND), 0 = OFF (Open)
 int lastRawSwitchState = -1;
 unsigned long lastSwitchDebounceMs = 0;
@@ -518,20 +520,27 @@ void handleManualControls() {
     filteredPotAdc = (filteredPotAdc * (1.0f - alpha)) + (rawAveraged * alpha);
   }
 
-  // C. Calculate Target Angle (-40.0° to +40.0°) with Center & Limit Snapping
-  float rawDeg = ((filteredPotAdc / 4095.0f) * 80.0f) - 40.0f;
-  if (rawDeg > 40.0f) rawDeg = 40.0f;
-  if (rawDeg < -40.0f) rawDeg = -40.0f;
+  // C. Calculate Target Angle (-45.0° to +45.0°) with Center & Limit Snapping
+  // Center (ADC ~2048) -> 0.0 deg ZERO DATUM
+  // Clockwise (ADC -> 4095) -> Positive (+0.1 to +45.0 deg)
+  // Anti-Clockwise (ADC -> 0) -> Negative (-0.1 to -45.0 deg)
+  float rawDeg = ((filteredPotAdc / 4095.0f) * 90.0f) - 45.0f;
+  if (potInvert) rawDeg = -rawDeg;
 
   // Center Zero Deadband: snap cleanly to exact 0.0 deg ZERO datum within +/- 1.5 deg
   if (fabs(rawDeg) <= 1.5f) {
     rawDeg = 0.0f;
   }
-  // End limit snapping
-  if (rawDeg >= 38.5f) rawDeg = 40.0f;
-  if (rawDeg <= -38.5f) rawDeg = -40.0f;
 
-  // 0.5° Resolution Quantization (eliminates fractional bouncing like -6.9 vs -6.8)
+  // Hard limit clamping to exactly -45.0 deg and +45.0 deg
+  if (rawDeg > 45.0f) rawDeg = 45.0f;
+  if (rawDeg < -45.0f) rawDeg = -45.0f;
+
+  // End limit snapping near full physical boundaries
+  if (rawDeg >= 43.5f) rawDeg = 45.0f;
+  if (rawDeg <= -43.5f) rawDeg = -45.0f;
+
+  // 0.5° Resolution Quantization (eliminates fractional bouncing)
   float targetPotAngle = roundf(rawDeg * 2.0f) / 2.0f;
   currentPotAngle = targetPotAngle;
 
@@ -565,11 +574,11 @@ void handleManualControls() {
 
       // Update status string
       if (currentPotAngle == 0.0f) {
-        lastTrackingStatus = "MANUAL: 0.0 deg ZERO (START)";
+        lastTrackingStatus = "MANUAL: 0.0 deg ZERO (CENTER)";
       } else if (currentPotAngle > 0.0f) {
-        lastTrackingStatus = "MANUAL: RIGHT (+ POSITIVE)";
+        lastTrackingStatus = "MANUAL: CLOCKWISE (+ POSITIVE)";
       } else {
-        lastTrackingStatus = "MANUAL: LEFT (- NEGATIVE)";
+        lastTrackingStatus = "MANUAL: ANTI-CLOCKWISE (- NEGATIVE)";
       }
 
       // Smoothly move solar slats to commanded angle
@@ -582,9 +591,9 @@ void handleManualControls() {
       if (currentPotAngle == 0.0f) {
         printAll(F(" deg [CENTER ZERO DATUM]"));
       } else if (currentPotAngle > 0.0f) {
-        printAll(F(" deg [RIGHT / POSITIVE (+)]"));
+        printAll(F(" deg [CLOCKWISE / POSITIVE (+)]"));
       } else {
-        printAll(F(" deg [LEFT / NEGATIVE (-)]"));
+        printAll(F(" deg [ANTI-CLOCKWISE / NEGATIVE (-)]"));
       }
       printAll(F(" | Solar Slat: "));
       if (currentAngle >= 0) printAll(F("+"));
@@ -870,7 +879,7 @@ void executeSunTracking() {
         lastTrackingStatus = "TRACKING SUN (+)";
         moveToAngle(nextAngle, TRACKING_SPEED_US);
       } else {
-        lastTrackingStatus = "LIMIT REACHED (+40 deg MAX)";
+        lastTrackingStatus = "LIMIT REACHED (+45 deg MAX)";
       }
     } else {
       float nextAngle = currentAngle - 1.0f;
@@ -878,7 +887,7 @@ void executeSunTracking() {
         lastTrackingStatus = "TRACKING SUN (-)";
         moveToAngle(nextAngle, TRACKING_SPEED_US);
       } else {
-        lastTrackingStatus = "LIMIT REACHED (-40 deg MIN)";
+        lastTrackingStatus = "LIMIT REACHED (-45 deg MIN)";
       }
     }
   }
@@ -1147,6 +1156,11 @@ void handleCommand(char* cmd) {
       printlnAll(F(" deg..."));
       moveToAngle(currentAngle + deg, TRACKING_SPEED_US);
     }
+  } else if (strcasecmp(cmd, "INVERT_POT") == 0 || strcasecmp(cmd, "POT_INVERT") == 0) {
+    potInvert = !potInvert;
+    printAll(F("\n[CMD] Potentiometer direction inverted! Direction is now: "));
+    printlnAll(potInvert ? F("INVERTED (CW=Negative, CCW=Positive)") : F("NORMAL (CW=Positive, CCW=Negative)"));
+    printlnAll();
   } else if (strcasecmp(cmd, "STATUS") == 0) {
     printlnAll(F("\n--- SYSTEM PARAMETERS ---"));
     printAll(F(" Angle          : "));
@@ -1169,9 +1183,9 @@ void handleCommand(char* cmd) {
     if (currentPotAngle >= 0) printAll(F("+"));
     printAll(currentPotAngle, 1);
     printAll(F(" deg"));
-    if (currentPotAngle == 0.0f) printlnAll(F(" [ZERO DATUM]"));
-    else if (currentPotAngle > 0.0f) printlnAll(F(" [RIGHT / POSITIVE]"));
-    else printlnAll(F(" [LEFT / NEGATIVE]"));
+    if (currentPotAngle == 0.0f) printlnAll(F(" [CENTER ZERO DATUM]"));
+    else if (currentPotAngle > 0.0f) printlnAll(F(" [CLOCKWISE / POSITIVE (+)]"));
+    else printlnAll(F(" [ANTI-CLOCKWISE / NEGATIVE (-)]"));
     printAll(F(" Tracking Speed : "));
     printAll(TRACKING_SPEED_US);
     printlnAll(F(" us"));
@@ -1286,10 +1300,11 @@ void printHelp() {
   printlnAll(F(" MODE / TOGGLE    : Toggle between AUTO and MANUAL mode    "));
   printlnAll(F(" SW / SWITCH      : Test PB12 & PB13 ON/OFF mode switch    "));
   printlnAll(F(" INVERT_SW        : Flip ON/OFF switch logic (ON<->OFF)    "));
+  printlnAll(F(" INVERT_POT       : Flip Pot CW/CCW direction (+ <-> -)    "));
   printlnAll(F(" RECOVER          : Step 45 deg negative from >+45 deg to 0.0"));
   printlnAll(F(" LEFT <deg>       : Jog slats towards negative (e.g. LEFT 10)"));
   printlnAll(F(" RIGHT <deg>      : Jog slats towards positive (e.g. RIGHT 10)"));
-  printlnAll(F(" GOTO <deg>       : Move slats to specific angle (-40 to +40)"));
+  printlnAll(F(" GOTO <deg>       : Move slats to specific angle (-45 to +45)"));
   printlnAll(F(" ZERO             : Calibrate current position as 0.0 deg  "));
   printlnAll(F(" HOME             : Re-run Hall-effect ZERO calibration    "));
   printlnAll(F(" SPEED_TRACK <us> : Adjust sun tracking speed (default: 2000)"));

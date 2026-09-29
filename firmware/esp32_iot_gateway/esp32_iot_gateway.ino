@@ -332,9 +332,9 @@ void updateLcdDisplay() {
     if (fabs(liveData.potAngle) <= 0.5f) {
       snprintf(line0, sizeof(line0), "POT :  0.0 [ZERO]");
     } else if (liveData.potAngle > 0.5f) {
-      snprintf(line0, sizeof(line0), "POT :%+5.1f (RGT)", liveData.potAngle);
+      snprintf(line0, sizeof(line0), "POT :%+5.1f (CW+)", liveData.potAngle);
     } else {
-      snprintf(line0, sizeof(line0), "POT :%+5.1f (LFT)", liveData.potAngle);
+      snprintf(line0, sizeof(line0), "POT :%+5.1f (CCW)", liveData.potAngle);
     }
 
     // Line 1: Solar Cells Actual Slat Angle & Real Power Output
