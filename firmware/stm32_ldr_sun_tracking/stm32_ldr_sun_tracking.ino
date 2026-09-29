@@ -503,29 +503,73 @@ void handleManualControls() {
   }
 
   // 2. Hardware 10k Potentiometer Manual Controller (PB0):
-  // Continuously monitors knob position (-40.0° to +40.0°)
-  static int lastPotVal = -999;
-  int rawPot = analogRead(PIN_POT_MANUAL);
+  // Advanced Anti-Jerk DSP Filter: 32x Multisampling + Adaptive IIR Filter + Hysteresis Engine
 
-  if (lastPotVal == -999) {
-    lastPotVal = rawPot;
+  // A. 32-Sample Multisampling to cancel high-frequency ADC & motor driver noise
+  long potSum = 0;
+  for (int i = 0; i < 32; i++) {
+    potSum += analogRead(PIN_POT_MANUAL);
+    delayMicroseconds(20);
   }
+  float rawAveraged = (float)potSum / 32.0f;
 
-  // Calculate target angle from potentiometer (0 -> -40 deg, 2048 -> 0 deg, 4095 -> +40 deg)
-  float rawAngle = ((rawPot / 4095.0f) * 80.0f) - 40.0f;
-  // Center deadband: snap cleanly to exact 0.0 deg ZERO datum
-  if (fabs(rawAngle) <= 1.2f) {
-    currentPotAngle = 0.0f;
+  // B. Adaptive Exponential Moving Average (EMA) Low-Pass Filter
+  static float filteredPotAdc = -1.0f;
+  if (filteredPotAdc < 0.0f) {
+    filteredPotAdc = rawAveraged;
   } else {
-    currentPotAngle = rawAngle;
+    float deltaAdc = fabs(rawAveraged - filteredPotAdc);
+    // Heavy smoothing (alpha = 0.08) for small noise; faster response (alpha = 0.28) for rapid manual turns
+    float alpha = (deltaAdc > 120.0f) ? 0.28f : 0.08f;
+    filteredPotAdc = (filteredPotAdc * (1.0f - alpha)) + (rawAveraged * alpha);
   }
 
-  // When in MANUAL mode, potentiometer knob directly controls solar slat angle:
-  if (!isAutoTracking) {
-    if (abs(rawPot - lastPotVal) > 40) {
-      lastPotVal = rawPot;
+  // C. Calculate Target Angle (-40.0° to +40.0°) with Center & Limit Snapping
+  float rawDeg = ((filteredPotAdc / 4095.0f) * 80.0f) - 40.0f;
+  if (rawDeg > 40.0f) rawDeg = 40.0f;
+  if (rawDeg < -40.0f) rawDeg = -40.0f;
 
-      // Determine status description based on position
+  // Center Zero Deadband: snap cleanly to exact 0.0 deg ZERO datum within +/- 1.5 deg
+  if (fabs(rawDeg) <= 1.5f) {
+    rawDeg = 0.0f;
+  }
+  // End limit snapping
+  if (rawDeg >= 38.5f) rawDeg = 40.0f;
+  if (rawDeg <= -38.5f) rawDeg = -40.0f;
+
+  // 0.5° Resolution Quantization (eliminates fractional bouncing like -6.9 vs -6.8)
+  float targetPotAngle = roundf(rawDeg * 2.0f) / 2.0f;
+  currentPotAngle = targetPotAngle;
+
+  // D. Anti-Jerk Hysteresis & Rate-Limited Motor Actuation
+  static float lastActuatedAngle = 999.0f;
+  static unsigned long lastPotMotionMs = 0;
+  static unsigned long potSettleStartTime = 0;
+
+  if (!isAutoTracking) {
+    float angleDiff = fabs(currentPotAngle - currentAngle);
+
+    // Track when the potentiometer target is actively changing
+    static float prevTargetPotAngle = 999.0f;
+    if (fabs(currentPotAngle - prevTargetPotAngle) >= 0.5f) {
+      prevTargetPotAngle = currentPotAngle;
+      potSettleStartTime = millis();
+    }
+
+    // Motion Condition 1: Significant Intentional Rotation (>= 1.5° difference)
+    // Rate-limited to max once every 120ms to allow smooth continuous stepper sweeps
+    bool triggerMajorMove = (angleDiff >= 1.5f) && (millis() - lastPotMotionMs >= 120);
+
+    // Motion Condition 2: Fine Settle Completion
+    // If user made a small fine adjustment (>= 0.5°), wait until the knob has settled stationary
+    // for at least 300ms, then do a single gentle alignment and stop
+    bool triggerFineSettle = (angleDiff >= 0.5f) && (millis() - potSettleStartTime > 300) && (millis() - lastPotMotionMs >= 300);
+
+    if (triggerMajorMove || triggerFineSettle) {
+      lastPotMotionMs = millis();
+      lastActuatedAngle = currentPotAngle;
+
+      // Update status string
       if (currentPotAngle == 0.0f) {
         lastTrackingStatus = "MANUAL: 0.0 deg ZERO (START)";
       } else if (currentPotAngle > 0.0f) {
@@ -534,7 +578,7 @@ void handleManualControls() {
         lastTrackingStatus = "MANUAL: LEFT (- NEGATIVE)";
       }
 
-      // Move solar cells slats to match potentiometer angle
+      // Smoothly move solar slats to commanded angle
       moveToAngle(currentPotAngle, TRACKING_SPEED_US);
 
       // Print live angle telemetry
@@ -553,11 +597,6 @@ void handleManualControls() {
       printAll(currentAngle, 1);
       printlnAll(F(" deg"));
       Serial1.flush();
-    }
-  } else {
-    // In AUTO mode, track potentiometer knob position changes quietly
-    if (abs(rawPot - lastPotVal) > 40) {
-      lastPotVal = rawPot;
     }
   }
 }
