@@ -45,60 +45,60 @@
 // 1. USER SPEED & TIMING VARIABLES
 // =============================================================================
 int ZERO_HOMING_SPEED_US = 2500;  // Speed during 0.0 deg ZERO search (default: 2500 us)
-int TRACKING_SPEED_US    = 3500;  // Speed during Sun Tracking motion (default: 2000 us)
+int TRACKING_SPEED_US = 3500;     // Speed during Sun Tracking motion (default: 2000 us)
 
 // ---------------- GPIO PIN DEFINITIONS (STM32 BLUE PILL) ----------------
-#define PIN_STEP        PB8   // A4988 STEP pulse
-#define PIN_DIR         PB9   // A4988 DIR direction
-#define PIN_ENABLE      PB10  // A4988 ENABLE (Active LOW)
-#define PIN_STATUS_LED  PC13  // Onboard LED (Active LOW)
+#define PIN_STEP PB8         // A4988 STEP pulse
+#define PIN_DIR PB9          // A4988 DIR direction
+#define PIN_ENABLE PB10      // A4988 ENABLE (Active LOW)
+#define PIN_STATUS_LED PC13  // Onboard LED (Active LOW)
 
-#define PIN_LDR_TOP1    PA0   // Top Sector Sensor 1
-#define PIN_LDR_TOP2    PA1   // Top Sector Sensor 2
-#define PIN_LDR_BOT1    PA4   // Bottom Sector Sensor 1
-#define PIN_LDR_BOT2    PA5   // Bottom Sector Sensor 2
+#define PIN_LDR_TOP1 PA0  // Top Sector Sensor 1
+#define PIN_LDR_TOP2 PA1  // Top Sector Sensor 2
+#define PIN_LDR_BOT1 PA4  // Bottom Sector Sensor 1
+#define PIN_LDR_BOT2 PA5  // Bottom Sector Sensor 2
 
-#define PIN_HALL_HOME   PB11  // Hall-effect Home Sensor (Active LOW)
-#define PIN_DHT11       PB5   // DHT11 Data Pin
+#define PIN_HALL_HOME PB11  // Hall-effect Home Sensor (Active LOW)
+#define PIN_DHT11 PB5       // DHT11 Data Pin
 
-#define PIN_POT_MANUAL  PB0   // 10k Potentiometer (ADC1_IN8)
-#define PIN_BTN_MODE    PB12  // Mode Toggle Button (Active LOW)
+#define PIN_POT_MANUAL PB0  // 10k Potentiometer (ADC1_IN8)
+#define PIN_BTN_MODE PB12   // Mode Toggle Button (Active LOW)
 
 // ---------------- POWER MONITORING PINS (SOLAR & BATTERY) ----------------
-#define PIN_SOLAR_VOLT  PA6   // Solar Voltage Analog Input
-#define PIN_SOLAR_CURR  PA7   // Solar Current Analog Input
-#define PIN_BATT_VOLT   PB1   // Battery Voltage Analog Input
+#define PIN_SOLAR_VOLT PA6  // Solar Voltage Analog Input
+#define PIN_SOLAR_CURR PA7  // Solar Current Analog Input
+#define PIN_BATT_VOLT PB1   // Battery Voltage Analog Input
 
-const float VOLT_DIVIDER_RATIO = (33000.0f + 6800.0f) / 6800.0f; // 5.8529
-float refVoltage = 3.3f; // STM32 ADC Reference Voltage
+const float VOLT_DIVIDER_RATIO = (33000.0f + 6800.0f) / 6800.0f;  // 5.8529
+float refVoltage = 3.3f;                                          // STM32 ADC Reference Voltage
 
-float currentSensitivity = 0.100f; // 100 mV/A (ACS712-20A)
-float currentZeroOffset   = 2.50f;  // Auto-calibrated at boot (Nominal 2.5V for 5V ACS712)
+float currentSensitivity = 0.100f;  // 100 mV/A (ACS712-20A)
+float currentZeroOffset = 2.50f;    // Auto-calibrated at boot (Nominal 2.5V for 5V ACS712)
 
-float solarVoltage = 0.0f; // Volts
-float solarCurrent = 0.0f; // Amps
-float solarPower   = 0.0f; // Watts
-float battVoltage  = 0.0f; // Volts
+float solarVoltage = 0.0f;  // Volts
+float solarCurrent = 0.0f;  // Amps
+float solarPower = 0.0f;    // Watts
+float battVoltage = 0.0f;   // Volts
 unsigned long lastPowerReadTime = 0;
 
 // ---------------- DHT11 ENVIRONMENT ----------------
-float currentTemp     = 0.0f; // deg C
-float currentHumidity = 0.0f; // %
+float currentTemp = 0.0f;      // deg C
+float currentHumidity = 0.0f;  // %
 unsigned long lastDhtReadTime = 0;
 
 // ---------------- KINEMATICS & BENCH CONSTANTS ----------------
-const float STEPS_PER_DEGREE = 10.556f; // 19:1 Worm gear ratio
+const float STEPS_PER_DEGREE = 10.556f;  // 19:1 Worm gear ratio
 const float MIN_ANGLE = -40.0f;
-const float MAX_ANGLE =  40.0f;
+const float MAX_ANGLE = 40.0f;
 
-int deadbandThreshold   = 50;
-int nightDarkThreshold  = 40;
+int deadbandThreshold = 50;
+int nightDarkThreshold = 40;
 const unsigned long NIGHT_PARK_DELAY_MS = 8000;
 
-bool isAutoTracking   = true;
-bool invertMotorDir   = false;
-float currentAngle    = 0.0f;
-bool  isHomed         = false;
+bool isAutoTracking = true;
+bool invertMotorDir = false;
+float currentAngle = 0.0f;
+bool isHomed = false;
 unsigned long lastTrackTime = 0;
 unsigned long darknessStartMs = 0;
 unsigned long frameCount = 0;
@@ -111,57 +111,37 @@ bool lastBtnState = HIGH;
 unsigned long lastBtnDebounceMs = 0;
 float lastPotTargetAngle = 0.0f;
 
-int lastTopVal  = 0;
-int lastBotVal  = 0;
+int lastTopVal = 0;
+int lastBotVal = 0;
 int lastDiffVal = 0;
 const char* lastTrackingStatus = "INITIALIZING";
 
 // ---------------- DUAL-SERIAL OUTPUT HELPERS ----------------
 // Serial1: Human-readable PC Telemetry on PA9/PA10 @ 115200 Baud
 // Serial2: High-speed JSON Stream to ESP32 on PA2/PA3 @ 115200 Baud
-#ifdef SERIAL_USB
-  #define HAS_USB_SERIAL 1
-#else
-  #define HAS_USB_SERIAL 0
-#endif
 
 template<typename T>
 void printAll(T msg) {
   Serial1.print(msg);
-#if HAS_USB_SERIAL
-  Serial.print(msg);
-#endif
 }
 
 template<typename T, typename P>
 void printAll(T msg, P p) {
   Serial1.print(msg, p);
-#if HAS_USB_SERIAL
-  Serial.print(msg, p);
-#endif
 }
 
 inline void printlnAll() {
   Serial1.println();
-#if HAS_USB_SERIAL
-  Serial.println();
-#endif
 }
 
 template<typename T>
 void printlnAll(T msg) {
   Serial1.println(msg);
-#if HAS_USB_SERIAL
-  Serial.println(msg);
-#endif
 }
 
 template<typename T, typename P>
 void printlnAll(T msg, P p) {
   Serial1.println(msg, p);
-#if HAS_USB_SERIAL
-  Serial.println(msg, p);
-#endif
 }
 
 // Compact JSON Telemetry Packet to ESP32 over USART2 (PA2/PA3)
@@ -191,8 +171,12 @@ void sendEsp32JsonTelemetry() {
 float parseCustomFloat(const char* p) {
   while (*p == ' ') p++;
   float sign = 1.0f;
-  if (*p == '-') { sign = -1.0f; p++; }
-  else if (*p == '+') { p++; }
+  if (*p == '-') {
+    sign = -1.0f;
+    p++;
+  } else if (*p == '+') {
+    p++;
+  }
   float val = 0.0f;
   while (*p >= '0' && *p <= '9') {
     val = val * 10.0f + (*p - '0');
@@ -211,8 +195,8 @@ float parseCustomFloat(const char* p) {
 }
 
 // ---------------- DIRECT DHT11 BITBANG WITH INTERRUPT PROTECTION ----------------
-bool readDHT11(uint8_t pin, float &temp, float &humidity) {
-  uint8_t data[5] = {0, 0, 0, 0, 0};
+bool readDHT11(uint8_t pin, float& temp, float& humidity) {
+  uint8_t data[5] = { 0, 0, 0, 0, 0 };
   pinMode(pin, OUTPUT);
   digitalWrite(pin, LOW);
   delay(20);
@@ -221,11 +205,17 @@ bool readDHT11(uint8_t pin, float &temp, float &humidity) {
   pinMode(pin, INPUT_PULLUP);
 
   unsigned long timeout = micros();
-  while (digitalRead(pin) == HIGH) { if (micros() - timeout > 100) return false; }
+  while (digitalRead(pin) == HIGH) {
+    if (micros() - timeout > 100) return false;
+  }
   timeout = micros();
-  while (digitalRead(pin) == LOW) { if (micros() - timeout > 100) return false; }
+  while (digitalRead(pin) == LOW) {
+    if (micros() - timeout > 100) return false;
+  }
   timeout = micros();
-  while (digitalRead(pin) == HIGH) { if (micros() - timeout > 100) return false; }
+  while (digitalRead(pin) == HIGH) {
+    if (micros() - timeout > 100) return false;
+  }
 
   noInterrupts();
   for (int i = 0; i < 40; i++) {
@@ -279,26 +269,24 @@ void printHelp();
 // =============================================================================
 void setup() {
   // 1. Initialize Dual Serial Channels @ 115200 Baud (High-speed, zero buffer overrun)
-  Serial1.begin(115200); // PC Flashing & Telemetry on PA9/PA10 @ 115200 Baud
-  Serial2.begin(115200); // ESP32 Telemetry Link on PA2/PA3 @ 115200 Baud
-#if HAS_USB_SERIAL
-  Serial.begin(115200);
-#endif
+  Serial1.begin(115200);  // PC Flashing & Telemetry on PA9/PA10 @ 115200 Baud
+  Serial2.begin(115200);  // ESP32 Telemetry Link on PA2/PA3 @ 115200 Baud
 
   // 2. Hardware Pins Configuration
   pinMode(PIN_STEP, OUTPUT);
   pinMode(PIN_DIR, OUTPUT);
   pinMode(PIN_ENABLE, OUTPUT);
-  motorOff(); // 0W silent coils
+  motorOff();  // 0W silent coils
 
   pinMode(PIN_STATUS_LED, OUTPUT);
-  digitalWrite(PIN_STATUS_LED, LOW); // LED ON at boot
+  digitalWrite(PIN_STATUS_LED, LOW);  // LED ON at boot
 
   pinMode(PIN_LDR_TOP1, INPUT);
   pinMode(PIN_LDR_TOP2, INPUT);
   pinMode(PIN_LDR_BOT1, INPUT);
   pinMode(PIN_LDR_BOT2, INPUT);
-  pinMode(PIN_HALL_HOME, INPUT_PULLUP);
+  //pinMode(PIN_HALL_HOME, INPUT_PULLUP);
+  pinMode(PIN_HALL_HOME, INPUT);
 
   pinMode(PIN_POT_MANUAL, INPUT);
   pinMode(PIN_BTN_MODE, INPUT_PULLUP);
@@ -309,8 +297,10 @@ void setup() {
 
   // Triple blink on boot for instant visual confirmation
   for (int b = 0; b < 3; b++) {
-    digitalWrite(PIN_STATUS_LED, LOW);  delay(80);
-    digitalWrite(PIN_STATUS_LED, HIGH); delay(80);
+    digitalWrite(PIN_STATUS_LED, LOW);
+    delay(80);
+    digitalWrite(PIN_STATUS_LED, HIGH);
+    delay(80);
   }
 
   printlnAll();
@@ -334,7 +324,7 @@ void setup() {
   // 5. Calibrate ZERO Datum
   findZeroHomeDatum();
 
-  digitalWrite(PIN_STATUS_LED, HIGH); // LED OFF (Ready)
+  digitalWrite(PIN_STATUS_LED, HIGH);  // LED OFF (Ready)
   printlnAll(F("[SYSTEM READY] Tracking ACTIVE @ 115200 Baud. Telemetry streaming below.\n"));
   Serial1.flush();
 }
@@ -380,6 +370,8 @@ void loop() {
 // =============================================================================
 // MANUAL CONTROLS: HARDWARE BUTTON (PB12) & 10K POTENTIOMETER (PB0)
 // =============================================================================
+
+
 void handleManualControls() {
   // 1. Mode Toggle Button Debouncing (PB12)
   bool reading = digitalRead(PIN_BTN_MODE);
@@ -442,7 +434,7 @@ void updatePowerSensors() {
   }
   float adcVoltS = ((sumSV / 8.0f) * refVoltage) / 4095.0f;
   solarVoltage = adcVoltS * VOLT_DIVIDER_RATIO;
-  if (solarVoltage < 0.20f) solarVoltage = 0.0f; // Noise floor
+  if (solarVoltage < 0.20f) solarVoltage = 0.0f;  // Noise floor
 
   // 2. Solar Current (PA7) with auto-calibrated zero baseline
   long sumSC = 0;
@@ -458,7 +450,7 @@ void updatePowerSensors() {
     solarCurrent = 0.0f;
   } else {
     solarCurrent = diffVolt / currentSensitivity;
-    if (solarCurrent < 0.10f) solarCurrent = 0.0f; // Positive unidirectional solar flow
+    if (solarCurrent < 0.10f) solarCurrent = 0.0f;  // Positive unidirectional solar flow
   }
 
   // 3. Solar Power (Watts)
@@ -598,15 +590,15 @@ void executeSunTracking() {
   int lightB1 = max(0, 4095 - rawB1);
   int lightB2 = max(0, 4095 - rawB2);
 
-  int avgTop    = (lightT1 + lightT2) / 2;
+  int avgTop = (lightT1 + lightT2) / 2;
   int avgBottom = (lightB1 + lightB2) / 2;
-  int maxLight  = max(avgTop, avgBottom);
+  int maxLight = max(avgTop, avgBottom);
 
   int diff = avgTop - avgBottom;
   if (invertMotorDir) diff = -diff;
 
-  lastTopVal  = avgTop;
-  lastBotVal  = avgBottom;
+  lastTopVal = avgTop;
+  lastBotVal = avgBottom;
   lastDiffVal = diff;
 
   if (maxLight < nightDarkThreshold) {
@@ -631,8 +623,7 @@ void executeSunTracking() {
     if (abs(diff) <= deadbandThreshold) {
       lastTrackingStatus = "SUN BALANCED (Optimum Yield)";
       motorOff();
-    }
-    else if (diff > deadbandThreshold) {
+    } else if (diff > deadbandThreshold) {
       float nextAngle = currentAngle + 1.0f;
       if (nextAngle <= MAX_ANGLE) {
         lastTrackingStatus = "TRACKING SUN (+)";
@@ -640,8 +631,7 @@ void executeSunTracking() {
       } else {
         lastTrackingStatus = "LIMIT REACHED (+40 deg MAX)";
       }
-    }
-    else {
+    } else {
       float nextAngle = currentAngle - 1.0f;
       if (nextAngle >= MIN_ANGLE) {
         lastTrackingStatus = "TRACKING SUN (-)";
@@ -661,19 +651,30 @@ void printTelemetry() {
   printAll(F("[POWER-IQ] Ang: "));
   if (currentAngle >= 0) printAll(F("+"));
   printAll(currentAngle, 1);
-  printAll(F(" deg | Vpv: ")); printAll(solarVoltage, 2);
-  printAll(F("V | Ipv: ")); printAll(solarCurrent, 2);
-  printAll(F("A | Ppv: ")); printAll(solarPower, 2);
-  printAll(F("W | Bat: ")); printAll(battVoltage, 2); printlnAll(F("V"));
+  printAll(F(" deg | Vpv: "));
+  printAll(solarVoltage, 2);
+  printAll(F("V | Ipv: "));
+  printAll(solarCurrent, 2);
+  printAll(F("A | Ppv: "));
+  printAll(solarPower, 2);
+  printAll(F("W | Bat: "));
+  printAll(battVoltage, 2);
+  printlnAll(F("V"));
 
-  printAll(F("           LDR Top: ")); printAll(lastTopVal);
-  printAll(F(" | Bot: ")); printAll(lastBotVal);
+  printAll(F("           LDR Top: "));
+  printAll(lastTopVal);
+  printAll(F(" | Bot: "));
+  printAll(lastBotVal);
   printAll(F(" | Diff: "));
   if (lastDiffVal >= 0) printAll(F("+"));
   printAll(lastDiffVal);
-  printAll(F(" (DB: +/-")); printAll(deadbandThreshold);
-  printAll(F(") | Temp: ")); printAll(currentTemp, 1);
-  printAll(F("C | Hum: ")); printAll(currentHumidity, 1); printlnAll(F("%"));
+  printAll(F(" (DB: +/-"));
+  printAll(deadbandThreshold);
+  printAll(F(") | Temp: "));
+  printAll(currentTemp, 1);
+  printAll(F("C | Hum: "));
+  printAll(currentHumidity, 1);
+  printlnAll(F("%"));
 
   printAll(F("           Mode: "));
   printAll(isAutoTracking ? F("AUTO (LDR)") : F("MANUAL (POT)"));
@@ -718,7 +719,7 @@ void moveToAngle(float targetAngle, int speedUs) {
 
 void stepPulse(int delayUs) {
   digitalWrite(PIN_STEP, HIGH);
-  delayMicroseconds(5); // Minimum 1us required by A4988 datasheet
+  delayMicroseconds(5);  // Minimum 1us required by A4988 datasheet
   digitalWrite(PIN_STEP, LOW);
   delayMicroseconds(delayUs);
 }
@@ -745,86 +746,100 @@ void handleCommand(char* cmd) {
   if (strcasecmp(cmd, "AUTO") == 0) {
     isAutoTracking = true;
     printlnAll(F("\n[CMD] Auto Sun Tracking ENABLED!\n"));
-  }
-  else if (strcasecmp(cmd, "MANUAL") == 0 || strcasecmp(cmd, "STOP") == 0) {
+  } else if (strcasecmp(cmd, "MANUAL") == 0 || strcasecmp(cmd, "STOP") == 0) {
     isAutoTracking = false;
     printlnAll(F("\n[CMD] Manual control active (Potentiometer knob enabled).\n"));
-  }
-  else if (strcasecmp(cmd, "HOME") == 0) {
+  } else if (strcasecmp(cmd, "HOME") == 0) {
     isAutoTracking = false;
     findZeroHomeDatum();
     isAutoTracking = true;
-  }
-  else if (strcasecmp(cmd, "ZERO") == 0) {
+  } else if (strcasecmp(cmd, "ZERO") == 0) {
     currentAngle = 0.0f;
     isHomed = true;
     printlnAll(F("\n[CMD] Current position calibrated as 0.0 deg ZERO.\n"));
-  }
-  else if (strcasecmp(cmd, "INVERT") == 0) {
+  } else if (strcasecmp(cmd, "INVERT") == 0) {
     invertMotorDir = !invertMotorDir;
     printAll(F("\n[CMD] Tracking direction inverted: "));
     printlnAll(invertMotorDir ? F("REVERSED") : F("NORMAL"));
-  }
-  else if (strncasecmp(cmd, "SPEED_TRACK ", 12) == 0) {
+  } else if (strncasecmp(cmd, "SPEED_TRACK ", 12) == 0) {
     int val = atoi(cmd + 12);
     if (val >= 800 && val <= 5000) {
       TRACKING_SPEED_US = val;
       printAll(F("\n[CMD] Tracking Speed updated to: "));
-      printAll(TRACKING_SPEED_US); printlnAll(F(" us"));
+      printAll(TRACKING_SPEED_US);
+      printlnAll(F(" us"));
     }
-  }
-  else if (strncasecmp(cmd, "SPEED_HOME ", 11) == 0) {
+  } else if (strncasecmp(cmd, "SPEED_HOME ", 11) == 0) {
     int val = atoi(cmd + 11);
     if (val >= 800 && val <= 5000) {
       ZERO_HOMING_SPEED_US = val;
       printAll(F("\n[CMD] ZERO Homing Speed updated to: "));
-      printAll(ZERO_HOMING_SPEED_US); printlnAll(F(" us"));
+      printAll(ZERO_HOMING_SPEED_US);
+      printlnAll(F(" us"));
     }
-  }
-  else if (strncasecmp(cmd, "VREF ", 5) == 0) {
+  } else if (strncasecmp(cmd, "VREF ", 5) == 0) {
     float val = parseCustomFloat(cmd + 5);
     if (val > 2.0f && val < 5.5f) {
       refVoltage = val;
       printAll(F("\n[CMD] ADC VREF calibrated to: "));
-      printAll(refVoltage, 2); printlnAll(F(" V"));
+      printAll(refVoltage, 2);
+      printlnAll(F(" V"));
     }
-  }
-  else if (strncasecmp(cmd, "DEADBAND ", 9) == 0) {
+  } else if (strncasecmp(cmd, "DEADBAND ", 9) == 0) {
     int val = atoi(cmd + 9);
     if (val >= 5 && val <= 1000) {
       deadbandThreshold = val;
       printAll(F("\n[CMD] Deadband updated to: "));
       printlnAll(deadbandThreshold);
     }
-  }
-  else if (strcasecmp(cmd, "ZERO_CURR") == 0 || strcasecmp(cmd, "CAL_CURR") == 0) {
+  } else if (strcasecmp(cmd, "ZERO_CURR") == 0 || strcasecmp(cmd, "CAL_CURR") == 0) {
     calibrateCurrentSensor();
     printAll(F("\n[CMD] Current Zero Baseline calibrated to: "));
     printAll(currentZeroOffset, 3);
     printlnAll(F(" V -> Current is now 0.00 A\n"));
-  }
-  else if (strcasecmp(cmd, "STATUS") == 0) {
+  } else if (strcasecmp(cmd, "STATUS") == 0) {
     printlnAll(F("\n--- SYSTEM PARAMETERS ---"));
-    printAll(F(" Angle          : ")); printAll(currentAngle, 1); printlnAll(F(" deg"));
-    printAll(F(" Homed (ZERO)   : ")); printlnAll(isHomed ? F("YES (0.0 deg)") : F("NO"));
-    printAll(F(" Mode           : ")); printlnAll(isAutoTracking ? F("AUTO (LDR)") : F("MANUAL (POT)"));
-    printAll(F(" Tracking Speed : ")); printAll(TRACKING_SPEED_US); printlnAll(F(" us"));
-    printAll(F(" Homing Speed   : ")); printAll(ZERO_HOMING_SPEED_US); printlnAll(F(" us"));
-    printAll(F(" Solar Voltage  : ")); printAll(solarVoltage, 2); printlnAll(F(" V"));
-    printAll(F(" Solar Current  : ")); printAll(solarCurrent, 2); printlnAll(F(" A"));
-    printAll(F(" Solar Power    : ")); printAll(solarPower, 2); printlnAll(F(" W"));
-    printAll(F(" Battery Volt   : ")); printAll(battVoltage, 2); printlnAll(F(" V"));
-    printAll(F(" Temperature    : ")); printAll(currentTemp, 1); printlnAll(F(" C"));
-    printAll(F(" Humidity       : ")); printAll(currentHumidity, 1); printlnAll(F(" %"));
-    printAll(F(" Steps/Deg      : ")); printlnAll(STEPS_PER_DEGREE, 4);
-    printAll(F(" Deadband       : ")); printlnAll(deadbandThreshold);
-    printAll(F(" Hall Magnet    : ")); printlnAll(digitalRead(PIN_HALL_HOME) == LOW ? F("DETECTED") : F("OPEN"));
+    printAll(F(" Angle          : "));
+    printAll(currentAngle, 1);
+    printlnAll(F(" deg"));
+    printAll(F(" Homed (ZERO)   : "));
+    printlnAll(isHomed ? F("YES (0.0 deg)") : F("NO"));
+    printAll(F(" Mode           : "));
+    printlnAll(isAutoTracking ? F("AUTO (LDR)") : F("MANUAL (POT)"));
+    printAll(F(" Tracking Speed : "));
+    printAll(TRACKING_SPEED_US);
+    printlnAll(F(" us"));
+    printAll(F(" Homing Speed   : "));
+    printAll(ZERO_HOMING_SPEED_US);
+    printlnAll(F(" us"));
+    printAll(F(" Solar Voltage  : "));
+    printAll(solarVoltage, 2);
+    printlnAll(F(" V"));
+    printAll(F(" Solar Current  : "));
+    printAll(solarCurrent, 2);
+    printlnAll(F(" A"));
+    printAll(F(" Solar Power    : "));
+    printAll(solarPower, 2);
+    printlnAll(F(" W"));
+    printAll(F(" Battery Volt   : "));
+    printAll(battVoltage, 2);
+    printlnAll(F(" V"));
+    printAll(F(" Temperature    : "));
+    printAll(currentTemp, 1);
+    printlnAll(F(" C"));
+    printAll(F(" Humidity       : "));
+    printAll(currentHumidity, 1);
+    printlnAll(F(" %"));
+    printAll(F(" Steps/Deg      : "));
+    printlnAll(STEPS_PER_DEGREE, 4);
+    printAll(F(" Deadband       : "));
+    printlnAll(deadbandThreshold);
+    printAll(F(" Hall Magnet    : "));
+    printlnAll(digitalRead(PIN_HALL_HOME) == LOW ? F("DETECTED") : F("OPEN"));
     printlnAll(F("-------------------------\n"));
-  }
-  else if (strcasecmp(cmd, "HELP") == 0 || strcmp(cmd, "?") == 0) {
+  } else if (strcasecmp(cmd, "HELP") == 0 || strcmp(cmd, "?") == 0) {
     printHelp();
-  }
-  else {
+  } else {
     float target = 0.0f;
     bool isAngle = false;
 
@@ -841,7 +856,8 @@ void handleCommand(char* cmd) {
 
     if (isAngle) {
       if (target < MIN_ANGLE || target > MAX_ANGLE) {
-        printAll(F("\n[ERROR] Target ")); printAll(target, 1);
+        printAll(F("\n[ERROR] Target "));
+        printAll(target, 1);
         printlnAll(F(" deg outside safe range [-40 to +40 deg]!\n"));
         return;
       }
@@ -883,22 +899,6 @@ void processSerialInput() {
       cmdBuf[cmdPos++] = c;
     }
   }
-
-#if HAS_USB_SERIAL
-  while (Serial.available()) {
-    char c = Serial.read();
-    if (c == '\r') continue;
-    if (c == '\n') {
-      cmdBuf[cmdPos] = '\0';
-      if (cmdPos > 0) {
-        handleCommand(cmdBuf);
-        cmdPos = 0;
-      }
-    } else if (cmdPos < sizeof(cmdBuf) - 1) {
-      cmdBuf[cmdPos++] = c;
-    }
-  }
-#endif
 }
 
 void printHelp() {
