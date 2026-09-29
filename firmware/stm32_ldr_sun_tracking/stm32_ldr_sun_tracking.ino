@@ -152,6 +152,10 @@ void printlnAll(T msg, P p) {
   Serial1.println(msg, p);
 }
 
+inline void printBar() {
+  Serial1.println(F("----------------------------------------"));
+}
+
 // Compact JSON Telemetry Packet to ESP32 over USART2 (PA2/PA3)
 void sendEsp32JsonTelemetry() {
   Serial2.print(F("{\"ang\":"));
@@ -367,14 +371,9 @@ void setup() {
   }
 
   printlnAll();
-  printlnAll(F("================================================================================"));
-  printlnAll(F(" POWER IQ — MULTI-SHAFT SOLAR CELL TRACKING SYSTEM (SIH 2026)                   "));
-  printlnAll(F(" Platform     : STM32F103C8T6 ARM Cortex-M3 (72 MHz) @ 115200 Baud              "));
-  printlnAll(F(" Ports        : USART1 (PA9/10 PC Debug) + USART2 (PA2/3 ESP32 Gateway)        "));
-  printlnAll(F(" Manual Ctrl  : Button PB12 (Mode) + 10k Pot PB0 (Knob)                        "));
-  printlnAll(F(" Solar Power  : Voltage (PA6) + Current (PA7 ACS712) -> Watts                   "));
-  printlnAll(F(" Calibration  : 10.556 steps/deg | Slat Angle Limit: -40 to +40 deg             "));
-  printlnAll(F("================================================================================"));
+  printBar();
+  printlnAll(F("POWER IQ — SOLAR TRACKER (STM32F103 @ 115200)"));
+  printBar();
   Serial1.flush();
 
   // 3. Auto-calibrate Current Sensor Zero Baseline
@@ -751,7 +750,7 @@ void findZeroHomeDatum() {
 
   motorOff();
   digitalWrite(PIN_STATUS_LED, HIGH);
-  printlnAll(F("--------------------------------------------------------------------------------"));
+  printBar();
   Serial1.flush();
 }
 
@@ -759,11 +758,8 @@ void findZeroHomeDatum() {
 // TRANSITION TO AUTO MODE (MANDATORY RETURN TO ZERO DATUM BEFORE SUN TRACKING)
 // =============================================================================
 void transitionToAutoMode() {
-  printlnAll();
-  printlnAll(F("================================================================================"));
-  printlnAll(F(">>> [AUTO SWITCH] INITIATING SAFE AUTO SUN TRACKING PROTOCOL...                "));
-  printlnAll(F(">>> Step 1: Aligning solar slats to 0.0 deg ZERO DATUM before sun search...    "));
-  printlnAll(F("================================================================================"));
+  printBar();
+  printlnAll(F("[AUTO SWITCH] Aligning slats to 0.0 deg ZERO datum..."));
 
   lastTrackingStatus = "ALIGNING TO 0.0 deg ZERO";
   printTelemetry();
@@ -771,9 +767,9 @@ void transitionToAutoMode() {
 
   // 1. If currently at any non-zero angle, smoothly drive to 0.0 deg ZERO first
   if (fabs(currentAngle) > 0.5f) {
-    printAll(F(">>> [AUTO SWITCH] Moving slats from current angle ("));
+    printAll(F("[AUTO SWITCH] Slats moving "));
     printAll(currentAngle, 1);
-    printlnAll(F(" deg) to 0.0 deg Center Datum..."));
+    printlnAll(F(" deg -> 0.0 deg..."));
     moveToAngle(0.0f, ZERO_HOMING_SPEED_US);
   }
 
@@ -786,9 +782,8 @@ void transitionToAutoMode() {
   isAutoTracking = true;
   lastTrackingStatus = "ZERO LOCKED -> Sun Search Active";
 
-  printlnAll(F(">>> Step 2: Solar Slats LOCKED at 0.0 deg ZERO DATUM!"));
-  printlnAll(F(">>> Step 3: Reading 4 LDR Sensors -> Tracking Sun for 100% Parallel Alignment!"));
-  printlnAll(F("================================================================================\n"));
+  printlnAll(F("[AUTO SWITCH] ZERO Locked! Auto Sun Tracking active."));
+  printBar();
   Serial1.flush();
 }
 
@@ -879,7 +874,7 @@ void executeSunTracking() {
 // STREAMLINED HIGH-SPEED TELEMETRY (CLEAN, JITTER-FREE @ 115200 BAUD)
 // =============================================================================
 void printTelemetry() {
-  printlnAll(F("--------------------------------------------------------------------------------"));
+  printBar();
   printAll(F("[SOLAR-DATA] Solar: "));
   printAll(solarVoltage, 2);
   printAll(F("V | Current: "));
@@ -918,7 +913,7 @@ void printTelemetry() {
   printAll(isHomed ? F("LOCKED (0.0 deg)") : F("HOMING"));
   printAll(F(" | Status: "));
   printlnAll(lastTrackingStatus);
-  printlnAll(F("--------------------------------------------------------------------------------"));
+  printBar();
   Serial1.flush();
 }
 
@@ -1068,22 +1063,15 @@ void handleCommand(char* cmd) {
       printlnAll(F("[DHT11] Troubleshooting: Verify VCC (3.3V/5V), GND, and PB5 signal wire.\n"));
     }
   } else if (strcasecmp(cmd, "SW") == 0 || strcasecmp(cmd, "SWITCH") == 0 || strcasecmp(cmd, "BTN") == 0 || strcasecmp(cmd, "BUTTON") == 0) {
-    printlnAll(F("\n--- HARDWARE ON/OFF MODE SWITCH DIAGNOSTIC ---"));
     int r12 = digitalRead(PIN_SW_MODE);
     int r13 = digitalRead(PIN_SW_MODE_ALT);
-    printAll(F(" PB12 Pin State     : "));
-    printlnAll(r12 == LOW ? F("LOW (0V - Closed to GND)") : F("HIGH (3.3V - Open)"));
-    printAll(F(" PB13 Pin State     : "));
-    printlnAll(r13 == LOW ? F("LOW (0V - Closed to GND)") : F("HIGH (3.3V - Open)"));
-    printAll(F(" Detected Switch    : "));
-    printlnAll((r12 == LOW || r13 == LOW) ? F("ON (CLOSED TO GND)") : F("OFF (OPEN)"));
-    printAll(F(" Active Mode        : "));
-    printlnAll(isAutoTracking ? F("AUTO (LDR Sun Tracking)") : F("MANUAL (Potentiometer Control)"));
-    printAll(F(" Switch Logic       : "));
-    printlnAll(switchInvert ? F("INVERTED (ON=MANUAL, OFF=AUTO)") : F("NORMAL (ON=AUTO, OFF=MANUAL)"));
-    printlnAll(F(" Wiring Guide       : Connect 2-pin ON/OFF Switch between PB12 (or PB13) and GND."));
-    printlnAll(F("                      Switch ON (closed) = AUTO mode | Switch OFF (open) = MANUAL mode."));
-    printlnAll(F(" Commands           : 'INVERT_SW' to flip ON/OFF mapping | 'AUTO' / 'MANUAL' for remote override.\n"));
+    printBar();
+    printAll(F("[SW] PB12: ")); printlnAll(r12 == LOW ? F("LOW (GND)") : F("HIGH"));
+    printAll(F("[SW] PB13: ")); printlnAll(r13 == LOW ? F("LOW (GND)") : F("HIGH"));
+    printAll(F("[SW] State: ")); printlnAll((r12 == LOW || r13 == LOW) ? F("ON") : F("OFF"));
+    printAll(F("[SW] Mode: ")); printlnAll(isAutoTracking ? F("AUTO") : F("MANUAL"));
+    printAll(F("[SW] Logic: ")); printlnAll(switchInvert ? F("INVERTED") : F("NORMAL"));
+    printBar();
   } else if (strcasecmp(cmd, "INVERT_SW") == 0 || strcasecmp(cmd, "SW_INVERT") == 0) {
     switchInvert = !switchInvert;
     bool targetAuto = (lastStableSwitchState == 1);
@@ -1144,66 +1132,19 @@ void handleCommand(char* cmd) {
     printlnAll(potInvert ? F("INVERTED (CW=Negative, CCW=Positive)") : F("NORMAL (CW=Positive, CCW=Negative)"));
     printlnAll();
   } else if (strcasecmp(cmd, "STATUS") == 0) {
-    printlnAll(F("\n--- SYSTEM PARAMETERS ---"));
-    printAll(F(" Angle          : "));
-    printAll(currentAngle, 1);
-    printlnAll(F(" deg"));
-    printAll(F(" Homed (ZERO)   : "));
-    printlnAll(isHomed ? F("YES (0.0 deg)") : F("NO"));
-    printAll(F(" Mode           : "));
-    printlnAll(isAutoTracking ? F("AUTO (LDR)") : F("MANUAL (POT)"));
-    printAll(F(" Mode Switch    : "));
-    int r12 = digitalRead(PIN_SW_MODE);
-    int r13 = digitalRead(PIN_SW_MODE_ALT);
-    if (r12 == LOW || r13 == LOW) {
-      printAll(F("ON (PIN LOW / GND) -> "));
-    } else {
-      printAll(F("OFF (PIN HIGH / OPEN) -> "));
-    }
-    printlnAll(isAutoTracking ? F("AUTO") : F("MANUAL"));
-    printAll(F(" Potentiometer  : "));
-    if (currentPotAngle >= 0) printAll(F("+"));
-    printAll(currentPotAngle, 1);
-    printAll(F(" deg"));
-    if (currentPotAngle == 0.0f) printlnAll(F(" [CENTER ZERO DATUM]"));
-    else if (currentPotAngle > 0.0f) printlnAll(F(" [CLOCKWISE / POSITIVE (+)]"));
-    else printlnAll(F(" [ANTI-CLOCKWISE / NEGATIVE (-)]"));
-    printAll(F(" Tracking Speed : "));
-    printAll(TRACKING_SPEED_US);
-    printlnAll(F(" us"));
-    printAll(F(" Homing Speed   : "));
-    printAll(ZERO_HOMING_SPEED_US);
-    printlnAll(F(" us"));
-    printAll(F(" Solar Voltage  : "));
-    printAll(solarVoltage, 2);
-    printlnAll(F(" V"));
-    printAll(F(" Solar Current  : "));
-    printAll(solarCurrent, 2);
-    printlnAll(F(" A"));
-    printAll(F(" Solar Power    : "));
-    printAll(solarPower, 2);
-    printlnAll(F(" W"));
-    printAll(F(" Battery Volt   : "));
-    printAll(battVoltage, 2);
-    printlnAll(F(" V"));
-    printAll(F(" Temperature    : "));
-    printAll(currentTemp, 1);
-    printlnAll(F(" C"));
-    printAll(F(" Humidity       : "));
-    printAll(currentHumidity, 1);
-    printlnAll(F(" %"));
-    printAll(F(" DHT11 Sensor   : "));
-    printAll(digitalRead(PIN_DHT11) == HIGH ? F("Pin PB5 IDLE HIGH (OK)") : F("Pin PB5 LOW (Check wiring)"));
-    printlnAll(currentTemp > 0.0f ? F(" [ONLINE]") : F(" [AWAITING DATA]"));
-    printAll(F(" Steps/Deg      : "));
-    printlnAll(STEPS_PER_DEGREE, 4);
-    printAll(F(" Deadband       : "));
-    printlnAll(deadbandThreshold);
-    printAll(F(" Direction      : "));
-    printlnAll(invertMotorDir ? F("REVERSED") : F("NORMAL"));
-    printAll(F(" Hall Magnet    : "));
-    printlnAll(digitalRead(PIN_HALL_HOME) == LOW ? F("DETECTED") : F("OPEN"));
-    printlnAll(F("-------------------------\n"));
+    printBar();
+    printAll(F("Angle: ")); printAll(currentAngle, 1);
+    printAll(F(" deg | Homed: ")); printlnAll(isHomed ? F("YES") : F("NO"));
+    printAll(F("Mode: ")); printlnAll(isAutoTracking ? F("AUTO") : F("MANUAL"));
+    printAll(F("Pot: ")); printAll(currentPotAngle, 1);
+    printlnAll(currentPotAngle == 0.0f ? F(" (ZERO)") : (currentPotAngle > 0 ? F(" (CW+)") : F(" (CCW-)")));
+    printAll(F("Solar: ")); printAll(solarVoltage, 2); printAll(F("V | "));
+    printAll(solarCurrent, 2); printAll(F("A | "));
+    printAll(solarPower, 2); printlnAll(F("W"));
+    printAll(F("Batt: ")); printAll(battVoltage, 2); printlnAll(F("V"));
+    printAll(F("Temp: ")); printAll(currentTemp, 1); printAll(F("C | Hum: "));
+    printAll(currentHumidity, 1); printlnAll(F("%"));
+    printBar();
   } else if (strcasecmp(cmd, "HELP") == 0 || strcmp(cmd, "?") == 0) {
     printHelp();
   } else {
@@ -1274,29 +1215,9 @@ void processSerialInput() {
 }
 
 void printHelp() {
-  printlnAll(F("\n========================================================"));
-  printlnAll(F(" POWER IQ — SUN TRACKER SERIAL COMMANDS                 "));
-  printlnAll(F("========================================================"));
-  printlnAll(F(" AUTO             : Enable continuous automatic sun tracking"));
-  printlnAll(F(" MANUAL           : Pause auto tracking (Potentiometer active)"));
-  printlnAll(F(" MODE / TOGGLE    : Toggle between AUTO and MANUAL mode    "));
-  printlnAll(F(" SW / SWITCH      : Test PB12 & PB13 ON/OFF mode switch    "));
-  printlnAll(F(" INVERT_SW        : Flip ON/OFF switch logic (ON<->OFF)    "));
-  printlnAll(F(" INVERT_POT       : Flip Pot CW/CCW direction (+ <-> -)    "));
-  printlnAll(F(" RECOVER          : Step 45 deg negative from >+45 deg to 0.0"));
-  printlnAll(F(" LEFT <deg>       : Jog slats towards negative (e.g. LEFT 10)"));
-  printlnAll(F(" RIGHT <deg>      : Jog slats towards positive (e.g. RIGHT 10)"));
-  printlnAll(F(" GOTO <deg>       : Move slats to specific angle (-45 to +45)"));
-  printlnAll(F(" ZERO             : Calibrate current position as 0.0 deg  "));
-  printlnAll(F(" HOME             : Re-run Hall-effect ZERO calibration    "));
-  printlnAll(F(" SPEED_TRACK <us> : Adjust sun tracking speed (default: 2000)"));
-  printlnAll(F(" SPEED_HOME <us>  : Adjust ZERO homing speed (default: 2500)"));
-  printlnAll(F(" VREF <float>     : Calibrate ADC VREF voltage (default: 3.3)"));
-  printlnAll(F(" INVERT           : Flip motor tracking direction (+/-)    "));
-  printlnAll(F(" DEADBAND <n>     : Adjust optical deadband (default: 50)  "));
-  printlnAll(F(" ZERO_CURR        : Auto-zero current sensor to 0.00 A     "));
-  printlnAll(F(" DHT / TEMP       : Test DHT11 temperature/humidity on PB5"));
-  printlnAll(F(" STATUS           : Display system parameters & sensors     "));
-  printlnAll(F(" HELP / ?         : Show this instruction guide            "));
-  printlnAll(F("========================================================\n"));
+  printBar();
+  printlnAll(F("CMDS: AUTO | MANUAL | MODE | SW | INVERT_SW | INVERT_POT"));
+  printlnAll(F("      RECOVER | LEFT <deg> | RIGHT <deg> | GOTO <deg>"));
+  printlnAll(F("      ZERO | HOME | STATUS | DHT | DEADBAND <n> | VREF <f>"));
+  printBar();
 }
