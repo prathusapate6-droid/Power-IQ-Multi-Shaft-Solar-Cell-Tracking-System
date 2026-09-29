@@ -38,7 +38,7 @@ interface DailyRecord {
   chart: { time: string; trackingW: number; fixedW: number }[];
 }
 
-const STORAGE_KEY = 'power_iq_daily_telemetry_v3';
+const STORAGE_KEY = 'power_iq_daily_telemetry_v4';
 
 function generateDayChart(peakW: number) {
   const chart = [];
@@ -56,12 +56,12 @@ function generateDayChart(peakW: number) {
 function createDefaultHistoricalRecords(): Record<string, DailyRecord> {
   const map: Record<string, DailyRecord> = {};
   
-  // Historical data benchmarks for previous days
+  // Historical data benchmarks for previous days (50W max panel scale)
   const historyConfig = [
-    { offset: 1, peakW: 168.5, totalWh: 984.2, fixedWh: 708.6, avgV: 14.85, avgA: 1.82, avgT: 36.4, gain: 38.9, label: 'Yesterday' },
-    { offset: 2, peakW: 154.0, totalWh: 912.0, fixedWh: 656.6, avgV: 14.62, avgA: 1.78, avgT: 35.8, gain: 38.9, label: '2 Days Ago' },
-    { offset: 3, peakW: 162.4, totalWh: 955.8, fixedWh: 688.2, avgV: 14.78, avgA: 1.80, avgT: 37.0, gain: 38.9, label: '3 Days Ago' },
-    { offset: 4, peakW: 171.2, totalWh: 1024.5, fixedWh: 737.6, avgV: 15.10, avgA: 1.88, avgT: 38.2, gain: 38.9, label: '4 Days Ago' },
+    { offset: 1, peakW: 42.8, totalWh: 246.5, fixedWh: 177.2, avgV: 13.85, avgA: 1.78, avgT: 36.4, gain: 39.1, label: 'Yesterday' },
+    { offset: 2, peakW: 39.2, totalWh: 228.0, fixedWh: 164.2, avgV: 13.62, avgA: 1.72, avgT: 35.8, gain: 38.9, label: '2 Days Ago' },
+    { offset: 3, peakW: 41.5, totalWh: 239.4, fixedWh: 172.1, avgV: 13.78, avgA: 1.75, avgT: 37.0, gain: 39.1, label: '3 Days Ago' },
+    { offset: 4, peakW: 43.6, totalWh: 256.2, fixedWh: 184.4, avgV: 14.10, avgA: 1.82, avgT: 38.2, gain: 38.9, label: '4 Days Ago' },
   ];
 
   for (const item of historyConfig) {
@@ -94,7 +94,7 @@ function createDefaultHistoricalRecords(): Record<string, DailyRecord> {
     avgCurrentA: 0.0,
     avgTempC: 37.1,
     netGainPercent: 38.9,
-    chart: generateDayChart(47.0),
+    chart: generateDayChart(42.0),
   };
 
   return map;
@@ -409,8 +409,8 @@ export const EnergyAnalytics: React.FC<EnergyAnalyticsProps> = ({ solar }) => {
                       fontSize={11}
                       tickLine={false}
                       tickFormatter={(val) => `${val} W`}
-                      domain={[0, 200]}
-                      ticks={[0, 50, 100, 150, 200]}
+                      domain={[0, 50]}
+                      ticks={[0, 10, 20, 30, 40, 50]}
                     />
                     <Tooltip 
                       formatter={(val: any) => [`${val} W`]}

@@ -29,10 +29,10 @@ export function useSolarSimulation() {
   const now = new Date();
   const hourDecimal = now.getHours() + now.getMinutes() / 60;
 
-  // Dynamic Diurnal / Historical points based on real hardware data & 200W benchmark curve
+  // Dynamic Diurnal / Historical points based on real hardware data & 50W benchmark curve
   const [diurnalData, setDiurnalData] = useState<HourlyGenerationPoint[]>(() => {
     try {
-      const saved = localStorage.getItem('power_iq_overview_diurnal_v3');
+      const saved = localStorage.getItem('power_iq_overview_diurnal_v4');
       if (saved) {
         return JSON.parse(saved);
       }
@@ -110,7 +110,7 @@ export function useSolarSimulation() {
 
     // Update the diurnal data curve around the current time
     setDiurnalData((prev) => {
-      if (solarPowerW <= 0) return prev; // Preserve full 200W benchmark curve when no load is attached
+      if (solarPowerW <= 0) return prev; // Preserve full 50W benchmark curve when no load is attached
 
       const curH = new Date().getHours() + new Date().getMinutes() / 60;
       const targetH = curH >= 6 && curH <= 18 ? curH : 12;
@@ -128,7 +128,7 @@ export function useSolarSimulation() {
         return p;
       });
       try {
-        localStorage.setItem('power_iq_overview_diurnal_v3', JSON.stringify(updated));
+        localStorage.setItem('power_iq_overview_diurnal_v4', JSON.stringify(updated));
       } catch {}
       return updated;
     });

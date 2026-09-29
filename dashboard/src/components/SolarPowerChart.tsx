@@ -88,7 +88,7 @@ export const SolarPowerChart: React.FC<SolarPowerChartProps> = ({
             </div>
             <div>
               <h2 className="text-base font-bold text-slate-900">
-                Solar Generation Profile (0 – 200W Scale)
+                Solar Generation Profile (0 – 50W Scale)
               </h2>
               <p className="text-xs text-slate-500 mt-0.5">
                 Comparative analysis: Multi-Shaft Dynamic Tracking vs Fixed Panel Baseline
@@ -144,15 +144,15 @@ export const SolarPowerChart: React.FC<SolarPowerChartProps> = ({
               axisLine={{ stroke: '#e2e8f0' }}
             />
 
-            {/* Y-Axis calibrated precisely up to 200 Watts */}
+            {/* Y-Axis calibrated precisely up to 50 Watts */}
             <ReYAxis
               stroke="#94a3b8"
               fontSize={11}
               tickLine={false}
               axisLine={{ stroke: '#e2e8f0' }}
               tickFormatter={(val) => `${val} W`}
-              domain={[0, 200]}
-              ticks={[0, 50, 100, 150, 200]}
+              domain={[0, 50]}
+              ticks={[0, 10, 20, 30, 40, 50]}
             />
 
             <ReTooltip content={<CustomTooltip />} />
