@@ -614,20 +614,17 @@ void handleManualControls() {
 // CURRENT SENSOR AUTO-ZERO CALIBRATION
 // =============================================================================
 void calibrateCurrentSensor() {
+  motorOff();
+  delay(150);  // Allow motor coils to fully de-energize and power rail to stabilize
+
   long sum = 0;
-  for (int i = 0; i < 64; i++) {
+  for (int i = 0; i < 128; i++) {
     sum += analogRead(PIN_SOLAR_CURR);
-    delayMicroseconds(250);
+    delayMicroseconds(200);
   }
-  float bootVolt = ((sum / 64.0f) * refVoltage) / 4095.0f;
-  lastAdcCurrS = bootVolt;
-  // If reading is near 2.50V (+/-0.15V), calibrate quiescent baseline.
-  // If deviating (>0.15V), load is active at boot: keep 2.50V so current is not zeroed!
-  if (fabs(bootVolt - 2.50f) <= 0.15f) {
-    currentZeroOffset = bootVolt;
-  } else {
-    currentZeroOffset = 2.50f;
-  }
+  float zeroVolt = ((sum / 128.0f) * refVoltage) / 4095.0f;
+  lastAdcCurrS = zeroVolt;
+  currentZeroOffset = zeroVolt;
 }
 
 // =============================================================================
@@ -650,24 +647,24 @@ void updatePowerSensors() {
 
   // 2. Solar Current (PA7) with auto-calibrated zero baseline
   long sumSC = 0;
-  for (int i = 0; i < 16; i++) {
+  for (int i = 0; i < 32; i++) {
     sumSC += analogRead(PIN_SOLAR_CURR);
-    delayMicroseconds(40);
+    delayMicroseconds(50);
   }
-  float adcCurrS = ((sumSC / 16.0f) * refVoltage) / 4095.0f;
+  float adcCurrS = ((sumSC / 32.0f) * refVoltage) / 4095.0f;
   lastAdcCurrS = adcCurrS;
   float diffVolt = adcCurrS - currentZeroOffset;
   lastCurrentDiffVolt = diffVolt;
   float absDiff = fabs(diffVolt);
 
-  // Deadband around zero: if difference is less than 20mV (~0.09A), force 0.00 A
-  if (absDiff < 0.020f) {
+  // Deadband around zero: if difference is less than 35mV (~0.16A), force 0.00 A
+  if (absDiff < 0.035f) {
     solarCurrent = 0.0f;
   } else {
     // Bidirectional sensing: absDiff works for both wiring polarities
     solarCurrent = absDiff / currentSensitivity;
-    if (solarCurrent < 0.05f) solarCurrent = 0.0f;   // Clean noise floor
-    if (solarCurrent > 2.05f) solarCurrent = 2.00f;  // Panel 2A physical saturation cap
+    if (solarCurrent < 0.08f) solarCurrent = 0.0f;   // Clean noise floor
+    if (solarCurrent > 2.05f) solarCurrent = 2.00f;  // Saturation cap
   }
 
   // 3. Solar Power (Watts)
@@ -1066,23 +1063,26 @@ void handleCommand(char* cmd) {
       printAll(F("\n[CMD] Deadband updated to: "));
       printlnAll(deadbandThreshold);
     }
-  } else if (strcasecmp(cmd, "ZERO_CURR") == 0 || strcasecmp(cmd, "CAL_CURR") == 0) {
-    long sum = 0;
-    for (int i = 0; i < 64; i++) {
-      sum += analogRead(PIN_SOLAR_CURR);
-      delayMicroseconds(250);
-    }
-    currentZeroOffset = ((sum / 64.0f) * refVoltage) / 4095.0f;
+  } else if (strcasecmp(cmd, "ZERO_CURR") == 0 || strcasecmp(cmd, "CAL_CURR") == 0 || strcasecmp(cmd, "ZERO_AMP") == 0) {
+    calibrateCurrentSensor();
     printAll(F("\n[CMD] Zero Baseline calibrated: "));
     printAll(currentZeroOffset, 3);
-    printlnAll(F(" V\n"));
+    printlnAll(F(" V -> Current is now 0.00 A\n"));
   } else if (strncasecmp(cmd, "SET_ZERO ", 9) == 0 || strncasecmp(cmd, "ZERO_VOLT ", 10) == 0) {
     float val = parseCustomFloat(cmd + (*cmd == 'S' ? 9 : 10));
-    if (val >= 1.0f && val <= 3.3f) {
+    if (val >= 0.5f && val <= 3.3f) {
       currentZeroOffset = val;
       printAll(F("\n[CMD] Zero Baseline set to: "));
       printAll(currentZeroOffset, 3);
       printlnAll(F(" V\n"));
+    }
+  } else if (strncasecmp(cmd, "SENS ", 5) == 0) {
+    float s = parseCustomFloat(cmd + 5);
+    if (s >= 0.04f && s <= 1.0f) {
+      currentSensitivity = s;
+      printAll(F("\n[CMD] Sensitivity set to: "));
+      printAll(currentSensitivity, 3);
+      printlnAll(F(" V/A\n"));
     }
   } else if (strcasecmp(cmd, "CURR") == 0 || strcasecmp(cmd, "CURRENT") == 0 || strcasecmp(cmd, "ACS") == 0) {
     printBar();
