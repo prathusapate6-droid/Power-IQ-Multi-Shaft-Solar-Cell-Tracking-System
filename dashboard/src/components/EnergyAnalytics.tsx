@@ -38,13 +38,17 @@ interface DailyRecord {
   chart: { time: string; trackingW: number; fixedW: number }[];
 }
 
-const STORAGE_KEY = 'power_iq_daily_telemetry_v4';
+const STORAGE_KEY = 'power_iq_daily_telemetry_v5';
 const FIREBASE_RTDB_URL = 'https://engineering-project-hub-default-rtdb.firebaseio.com';
 
-function generateDayChart(peakW: number) {
+function generateDayChart(peakW: number, maxHour: number = 18) {
   const chart = [];
   for (let h = 6; h <= 18; h++) {
     const timeStr = `${h.toString().padStart(2, '0')}:00`;
+    if (h > maxHour) {
+      chart.push({ time: timeStr, trackingW: 0, fixedW: 0 });
+      continue;
+    }
     const daylightFraction = (h - 6) / 12;
     const sunSin = Math.sin(daylightFraction * Math.PI);
     const trackingW = sunSin > 0 ? Number((Math.pow(sunSin, 0.65) * peakW).toFixed(1)) : 0;
@@ -79,12 +83,14 @@ function createDefaultHistoricalRecords(): Record<string, DailyRecord> {
       avgCurrentA: item.avgA,
       avgTempC: item.avgT,
       netGainPercent: item.gain,
-      chart: generateDayChart(item.peakW),
+      chart: generateDayChart(item.peakW, 18),
     };
   }
 
-  // Today initial record with projected benchmark curve so chart is never flat
-  const todayStr = new Date().toISOString().split('T')[0];
+  // Today initial record with generation ONLY up to current hour (future hours are 0)
+  const now = new Date();
+  const currentHour = now.getHours();
+  const todayStr = now.toISOString().split('T')[0];
   map[todayStr] = {
     date: todayStr,
     label: `Today (${todayStr})`,
@@ -95,7 +101,7 @@ function createDefaultHistoricalRecords(): Record<string, DailyRecord> {
     avgCurrentA: 0.0,
     avgTempC: 37.1,
     netGainPercent: 38.9,
-    chart: generateDayChart(42.0),
+    chart: generateDayChart(42.0, currentHour),
   };
 
   return map;
@@ -145,11 +151,16 @@ export const EnergyAnalytics: React.FC<EnergyAnalyticsProps> = ({ solar }) => {
         avgCurrentA: currentA,
         avgTempC: currentTemp,
         netGainPercent: 38.9,
-        chart: generateDayChart(Math.max(47.0, currentW)),
+        chart: generateDayChart(Math.max(42.0, currentW), new Date().getHours()),
       };
 
-      // Update today's record with live values without wiping out peak or existing data
+      // Update today's record with live values without generating future hours
+      const currentHour = new Date().getHours();
       const updatedChart = existing.chart.map((point) => {
+        const pointHour = parseInt(point.time.split(':')[0], 10);
+        if (pointHour > currentHour) {
+          return { ...point, trackingW: 0, fixedW: 0 };
+        }
         if (point.time === timeSlot && currentW > 0) {
           return {
             ...point,
@@ -190,6 +201,17 @@ export const EnergyAnalytics: React.FC<EnergyAnalyticsProps> = ({ solar }) => {
       .then((res) => res.json())
       .then((cloudData) => {
         if (cloudData && typeof cloudData === 'object') {
+          const today = getTodayStr();
+          const currentHour = new Date().getHours();
+          if (cloudData[today] && Array.isArray(cloudData[today].chart)) {
+            cloudData[today].chart = cloudData[today].chart.map((pt: any) => {
+              const ptHour = parseInt(pt.time.split(':')[0], 10);
+              if (ptHour > currentHour) {
+                return { ...pt, trackingW: 0, fixedW: 0 };
+              }
+              return pt;
+            });
+          }
           setRecords((prev) => {
             const merged = { ...prev, ...cloudData };
             try {
@@ -230,6 +252,18 @@ export const EnergyAnalytics: React.FC<EnergyAnalyticsProps> = ({ solar }) => {
 
   // Active data for chosen date
   const activeRecord = records[selectedDate];
+
+  // Strictly clamp future hours to 0W so today never shows false generation in future hours
+  const currentHourNow = new Date().getHours();
+  const displayChart = activeRecord
+    ? activeRecord.chart.map((pt) => {
+        const ptHour = parseInt(pt.time.split(':')[0], 10);
+        if (isToday && ptHour > currentHourNow) {
+          return { ...pt, trackingW: 0, fixedW: 0 };
+        }
+        return pt;
+      })
+    : [];
 
   // CSV Export Function
   const handleDownloadCsv = () => {
@@ -437,7 +471,7 @@ export const EnergyAnalytics: React.FC<EnergyAnalyticsProps> = ({ solar }) => {
 
               <div className="h-56 w-full">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={activeRecord.chart} margin={{ top: 10, right: 10, left: -15, bottom: 0 }}>
+                  <BarChart data={displayChart} margin={{ top: 10, right: 10, left: -15, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
                     <XAxis dataKey="time" stroke="#94a3b8" fontSize={11} tickLine={false} />
                     <YAxis
