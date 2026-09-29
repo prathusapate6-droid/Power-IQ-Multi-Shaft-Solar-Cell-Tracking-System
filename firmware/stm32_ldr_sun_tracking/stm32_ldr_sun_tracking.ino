@@ -734,39 +734,51 @@ void updateDhtSensors() {
 
 // =============================================================================
 // =============================================================================
-// SAFE ZERO HOMING DATUM (MOVES TOWARDS ZERO, NEVER FORCES POSITIVE CRASH)
+// SAFE ZERO HOMING DATUM: FULL -90 TO +90 DEG SWEEP & CENTERING
 // =============================================================================
 void findZeroHomeDatum() {
-  printlnAll(F("\n[HOMING] Calibrating ZERO Position (0.0 deg Datum)..."));
+  printlnAll(F("\n[HOMING] Calibrating ZERO Position (-90 to +90 deg search)..."));
 
   // 1. If Hall sensor already detects magnet at 0.0 deg, confirm immediately
   if (digitalRead(PIN_HALL_HOME) == LOW) {
     currentAngle = 0.0f;
     isHomed = true;
+    lastTrackingStatus = "ZERO DATUM LOCKED (0.0 deg)";
     motorOff();
-    printlnAll(F("[HOMING] Magnet detected at sensor! ZERO Datum Confirmed: 0.0 deg.\n"));
+    printlnAll(F("[HOMING] Magnet detected! ZERO Locked: 0.0 deg.\n"));
     return;
   }
 
-  // 2. Determine safe homing direction:
-  // If we are on the positive side (e.g. +45 deg), move NEGATIVE (LOW) towards 0.0 deg.
-  // If we are on the negative side (e.g. -30 deg), move POSITIVE (HIGH) towards 0.0 deg.
-  // If starting position is unknown, step NEGATIVE (LOW) to pull away from the +45 limit!
-  uint8_t homeDir = (currentAngle < 0.0f) ? HIGH : LOW;
-
   motorOn();
   digitalWrite(PIN_STATUS_LED, LOW);
-  digitalWrite(PIN_DIR, homeDir);
 
   bool foundMagnet = false;
-  long maxSteps = (long)(50.0f * STEPS_PER_DEGREE);
+  uint8_t activeDir = LOW;
 
-  for (long s = 0; s < maxSteps; s++) {
+  // Sweep 1: Step Negative (up to 95 deg) towards -90 deg
+  digitalWrite(PIN_DIR, LOW);
+  long sweep1 = (long)(95.0f * STEPS_PER_DEGREE);
+  for (long s = 0; s < sweep1; s++) {
     if (digitalRead(PIN_HALL_HOME) == LOW) {
       foundMagnet = true;
+      activeDir = LOW;
       break;
     }
     stepPulse(ZERO_HOMING_SPEED_US);
+  }
+
+  // Sweep 2: If not found, reverse and step Positive (up to 190 deg) towards +90 deg
+  if (!foundMagnet) {
+    digitalWrite(PIN_DIR, HIGH);
+    long sweep2 = (long)(190.0f * STEPS_PER_DEGREE);
+    for (long s = 0; s < sweep2; s++) {
+      if (digitalRead(PIN_HALL_HOME) == LOW) {
+        foundMagnet = true;
+        activeDir = HIGH;
+        break;
+      }
+      stepPulse(ZERO_HOMING_SPEED_US);
+    }
   }
 
   if (foundMagnet) {
@@ -780,7 +792,7 @@ void findZeroHomeDatum() {
 
     long centerSteps = spanSteps / 2;
     if (centerSteps > 0) {
-      digitalWrite(PIN_DIR, (homeDir == HIGH) ? LOW : HIGH);
+      digitalWrite(PIN_DIR, (activeDir == HIGH) ? LOW : HIGH);
       for (long s = 0; s < centerSteps; s++) {
         stepPulse(ZERO_HOMING_SPEED_US);
       }
@@ -789,17 +801,15 @@ void findZeroHomeDatum() {
     currentAngle = 0.0f;
     isHomed = true;
     lastTrackingStatus = "ZERO DATUM LOCKED (0.0 deg)";
-    printlnAll(F("[HOMING] Magnet centered successfully! ZERO Position LOCKED at 0.0 deg."));
-    Serial1.flush();
+    printlnAll(F("[HOMING] Magnet centered! ZERO Locked at 0.0 deg (Limits: +/-45 deg)."));
   } else {
-    // Magnet was not reached: Step back to original position to prevent tilting
-    digitalWrite(PIN_DIR, (homeDir == HIGH) ? LOW : HIGH);
-    for (long s = 0; s < maxSteps; s++) {
+    // Magnet not reached: Return ~95 deg back towards center
+    digitalWrite(PIN_DIR, LOW);
+    long retSteps = (long)(95.0f * STEPS_PER_DEGREE);
+    for (long s = 0; s < retSteps; s++) {
       stepPulse(ZERO_HOMING_SPEED_US);
     }
-    printlnAll(F("[HOMING] No magnet detected. Returned to start position."));
-    printlnAll(F("[HOMING] Use Potentiometer or 'ZERO' command to calibrate."));
-    Serial1.flush();
+    printlnAll(F("[HOMING] Magnet not found in +/-90 deg sweep. Pausing homing."));
   }
 
   motorOff();
@@ -848,7 +858,12 @@ void transitionToAutoMode() {
 // =============================================================================
 void executeSunTracking() {
   if (!isHomed) {
-    findZeroHomeDatum();
+    static unsigned long lastHomingAttemptMs = 0;
+    bool shouldHome = (lastHomingAttemptMs == 0) || (millis() - lastHomingAttemptMs >= 20000);
+    if (shouldHome) {
+      lastHomingAttemptMs = millis();
+      findZeroHomeDatum();
+    }
     return;
   }
 
