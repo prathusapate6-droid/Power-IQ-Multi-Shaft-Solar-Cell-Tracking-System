@@ -29,10 +29,11 @@ export function useSolarSimulation() {
   const now = new Date();
   const hourDecimal = now.getHours() + now.getMinutes() / 60;
 
-  // Dynamic Diurnal / Historical points based on real hardware data & 50W benchmark curve
+  // Dynamic Diurnal / Historical points based on real hardware data & 21W physical panel scale
   const [diurnalData, setDiurnalData] = useState<HourlyGenerationPoint[]>(() => {
     try {
-      const saved = localStorage.getItem('power_iq_overview_diurnal_v4');
+      localStorage.removeItem('power_iq_overview_diurnal_v4'); // Purge legacy 44.5W fake cache!
+      const saved = localStorage.getItem('power_iq_real_diurnal_v7');
       if (saved) {
         return JSON.parse(saved);
       }
@@ -110,18 +111,23 @@ export function useSolarSimulation() {
 
     // Update the diurnal data curve around the current time
     setDiurnalData((prev) => {
-      if (solarPowerW <= 0) return prev; // Preserve full 50W benchmark curve when no load is attached
-
       const curH = new Date().getHours() + new Date().getMinutes() / 60;
       const targetH = curH >= 6 && curH <= 18 ? curH : 12;
+
+      // Realistic physical fixed panel power calculated from actual shaft angle tilt
+      const fixedRatio = Math.max(0.65, Math.cos(actualShaftAngle * Math.PI / 180));
+      const realFixedW = Number((solarPowerW * fixedRatio).toFixed(1));
+      const realFixedKw = Number((solarPowerKw * fixedRatio).toFixed(3));
+
       const updated = prev.map((p) => {
-        if (Math.abs(p.hour - targetH) < 0.6) {
+        // Current active time slot (within 25 mins of now)
+        if (Math.abs(p.hour - targetH) < 0.45) {
           return {
             ...p,
             trackingKw: solarPowerKw,
-            fixedKw: Number((solarPowerKw * 0.72).toFixed(3)),
+            fixedKw: realFixedKw,
             trackingW: solarPowerW,
-            fixedW: Number((solarPowerW * 0.72).toFixed(1)),
+            fixedW: realFixedW,
             sunElevation: Math.max(10, Math.round(90 - Math.abs(actualShaftAngle))),
             solarVoltage: solarVoltageV > 0 ? solarVoltageV : p.solarVoltage,
             battVoltage: battVoltageV > 0 ? battVoltageV : p.battVoltage,
@@ -130,10 +136,38 @@ export function useSolarSimulation() {
             humidity: (telemetry && telemetry.humidity) ? telemetry.humidity : p.humidity,
           };
         }
+        // Future hours are ALWAYS zero (no fake predictions!)
+        if (p.hour > curH + 0.25) {
+          return {
+            ...p,
+            trackingKw: 0,
+            fixedKw: 0,
+            trackingW: 0,
+            fixedW: 0,
+            solarCurrent: 0,
+            solarVoltage: 0,
+          };
+        }
+        // Past hours: If any point has old fake peak > 22W, scale it down to actual panel capacity
+        if (p.trackingW > 22.0) {
+          const sunFraction = (p.hour - 6) / 12;
+          const sunSin = Math.sin(Math.max(0, sunFraction) * Math.PI);
+          const scaledW = Number((Math.pow(sunSin, 0.62) * 20.5).toFixed(1));
+          return {
+            ...p,
+            trackingW: scaledW,
+            fixedW: Number((scaledW * 0.71).toFixed(1)),
+            trackingKw: Number((scaledW / 1000).toFixed(3)),
+            fixedKw: Number(((scaledW * 0.71) / 1000).toFixed(3)),
+            solarVoltage: solarVoltageV > 0 ? solarVoltageV : p.solarVoltage,
+            battVoltage: battVoltageV > 0 ? battVoltageV : p.battVoltage,
+            temperature: temperatureC > 0 ? temperatureC : p.temperature,
+          };
+        }
         return p;
       });
       try {
-        localStorage.setItem('power_iq_overview_diurnal_v4', JSON.stringify(updated));
+        localStorage.setItem('power_iq_real_diurnal_v7', JSON.stringify(updated));
       } catch {}
       return updated;
     });

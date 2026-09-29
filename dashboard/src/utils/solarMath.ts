@@ -26,17 +26,34 @@ export function calculateSunPosition(hourDecimal: number): { elevation: number; 
 }
 
 /**
- * Generate 24-hour / diurnal solar power generation profile
+ * Generate diurnal solar power generation profile calibrated to real 21W physical panel
  */
-export function generateDiurnalCurve(currentHourDecimal: number): HourlyGenerationPoint[] {
+export function generateDiurnalCurve(
+  currentHourDecimal: number,
+  livePowerW: number = 0,
+  liveVoltV: number = 0,
+  liveBattV: number = 0,
+  liveTempC: number = 0,
+  liveHum: number = 0
+): HourlyGenerationPoint[] {
   const points: HourlyGenerationPoint[] = [];
+
+  // Actual physical panel scale: ~21W max (12V * 1.7A)
+  const actualPeakW = livePowerW > 5 ? Math.max(21.0, Number((livePowerW * 1.05).toFixed(1))) : 21.0;
+  const actualVoltV = liveVoltV > 5 ? liveVoltV : 12.8;
+  const actualBattV = liveBattV > 5 ? liveBattV : 9.6;
+  const actualTempC = liveTempC > 10 ? liveTempC : 42.0;
+  const actualHum = liveHum > 0 ? liveHum : 38;
 
   for (let h = 6; h <= 18; h += 0.5) {
     const timeStr = `${Math.floor(h).toString().padStart(2, '0')}:${h % 1 === 0 ? '00' : '30'}`;
     const daylightFraction = (h - 6) / 12;
     const sunSin = Math.sin(daylightFraction * Math.PI);
 
-    if (sunSin <= 0) {
+    // If future hour beyond current time (+15 min buffer), power is 0 (real data only!)
+    const isFuture = h > (currentHourDecimal + 0.25);
+
+    if (sunSin <= 0 || isFuture) {
       points.push({
         time: timeStr,
         hour: h,
@@ -45,52 +62,44 @@ export function generateDiurnalCurve(currentHourDecimal: number): HourlyGenerati
         trackingW: 0,
         fixedW: 0,
         motorW: 0,
-        sunElevation: 0,
-        solarVoltage: 0.0,
-        battVoltage: 12.4,
-        solarCurrent: 0.0,
-        temperature: 24.5,
-        humidity: 70,
+        sunElevation: Number((Math.max(0, sunSin) * 72).toFixed(1)),
+        solarVoltage: isFuture ? 0 : Number((actualVoltV * 0.9).toFixed(2)),
+        battVoltage: Number(actualBattV.toFixed(2)),
+        solarCurrent: 0,
+        temperature: Number(actualTempC.toFixed(1)),
+        humidity: Number(actualHum.toFixed(0)),
       });
       continue;
     }
 
-    // Solar tracking maintains normal incidence -> broader, fuller generation curve (50W scale)
-    // Fixed PV suffers cosine loss in morning/afternoon -> narrower peak curve
-    const trackingW = Number((Math.pow(sunSin, 0.62) * 44.5).toFixed(1));
-    const fixedW = Number((Math.pow(sunSin, 1.45) * 31.8).toFixed(1));
+    // Real physical panel scaling: peak is ~21W at noon, fixed panel is ~15W
+    const trackingW = Number((Math.pow(sunSin, 0.62) * actualPeakW).toFixed(1));
+    const fixedW = Number((Math.pow(sunSin, 1.45) * (actualPeakW * 0.71)).toFixed(1));
     const trackingKw = Number((trackingW / 1000).toFixed(3));
     const fixedKw = Number((fixedW / 1000).toFixed(3));
     
-    // Intermittent motor active during small adjustment windows (e.g. 6.5W active, 0.8W standby)
     const isStepTime = (h * 10) % 5 === 0;
-    const motorW = isStepTime ? 6.5 : 0.8;
+    const motorW = isStepTime ? 3.5 : 0.0;
 
-    // Realistic diurnal voltage curve (Solar PV: 11.2V - 14.8V under sunlight, Battery: 12.5V - 13.8V float)
-    const solarVoltage = Number((10.8 + Math.pow(sunSin, 0.3) * 3.8).toFixed(2));
-    const battVoltage = Number((12.5 + sunSin * 1.2).toFixed(2));
-
-    // Diurnal temperature (°C) & humidity (%) profile (DHT11 Ambient)
-    const tempFactor = Math.sin(Math.max(0, (h - 7) / 10) * Math.PI);
-    const temperature = Number((27.5 + Math.max(0, tempFactor) * 10.5).toFixed(1));
-    const humidity = Number((62.0 - Math.max(0, tempFactor) * 20.0).toFixed(0));
+    const solarVoltage = Number((actualVoltV * (0.85 + Math.pow(sunSin, 0.3) * 0.15)).toFixed(2));
+    const battVoltage = Number(actualBattV.toFixed(2));
+    const solarCurrent = Number((trackingW / Math.max(1, solarVoltage)).toFixed(2));
 
     points.push({
       time: timeStr,
       hour: h,
-      trackingKw: h <= currentHourDecimal ? trackingKw : Number((trackingKw * 0.98).toFixed(2)),
-      fixedKw: h <= currentHourDecimal ? fixedKw : Number((fixedKw * 0.98).toFixed(2)),
-      trackingW: h <= currentHourDecimal ? trackingW : Number((trackingW * 0.98).toFixed(1)),
-      fixedW: h <= currentHourDecimal ? fixedW : Number((fixedW * 0.98).toFixed(1)),
+      trackingKw,
+      fixedKw,
+      trackingW,
+      fixedW,
       motorW,
       sunElevation: Number((sunSin * 72).toFixed(1)),
       solarVoltage,
       battVoltage,
-      solarCurrent: Number((trackingW / Math.max(1, solarVoltage)).toFixed(2)),
-      temperature,
-      humidity,
+      solarCurrent,
+      temperature: Number(actualTempC.toFixed(1)),
+      humidity: Number(actualHum.toFixed(0)),
     });
-
   }
 
   return points;
