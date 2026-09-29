@@ -313,6 +313,7 @@ void motorOff();
 void stepPulse(int delayUs);
 void moveToAngle(float targetAngle, int speedUs = 0);
 void findZeroHomeDatum();
+void transitionToAutoMode();
 void updateDhtSensors();
 void updatePowerSensors();
 void calibrateCurrentSensor();
@@ -473,20 +474,15 @@ void handleManualControls() {
       if (switchInvert) targetAuto = !targetAuto;
 
       if (targetAuto != isAutoTracking) {
-        isAutoTracking = targetAuto;
-        printlnAll();
-        printAll(F(">>> [MODE SWITCH FLIPPED] Switch is now: "));
-        if (lastStableSwitchState == 1) {
-          printAll(F("ON (PIN LOW / GND) -> "));
+        if (targetAuto) {
+          // Switching from MANUAL to AUTO: ALWAYS align to ZERO DATUM first before tracking!
+          transitionToAutoMode();
         } else {
-          printAll(F("OFF (PIN HIGH / OPEN) -> "));
-        }
-        printlnAll(isAutoTracking ? F("AUTO MODE (LDR Sun Tracking)") : F("MANUAL MODE (Potentiometer Control)"));
-        printlnAll();
-        Serial1.flush();
-
-        if (!isAutoTracking) {
-          // Immediately move to potentiometer angle when switched to MANUAL!
+          // Switching from AUTO to MANUAL
+          isAutoTracking = false;
+          printlnAll();
+          printAll(F(">>> [MODE SWITCH FLIPPED] Switch is now: OFF (PIN HIGH / OPEN) -> MANUAL MODE (Potentiometer Control)\n"));
+          Serial1.flush();
           if (currentPotAngle == 0.0f) {
             lastTrackingStatus = "MANUAL: 0.0 deg ZERO (START)";
           } else if (currentPotAngle > 0.0f) {
@@ -495,8 +491,6 @@ void handleManualControls() {
             lastTrackingStatus = "MANUAL: LEFT (- NEGATIVE)";
           }
           moveToAngle(currentPotAngle, TRACKING_SPEED_US);
-        } else {
-          lastTrackingStatus = "AUTO (LDR Sun Tracking)";
         }
       }
     }
@@ -679,11 +673,12 @@ void updateDhtSensors() {
 }
 
 // =============================================================================
-// ZERO HOMING DATUM (CENTERS ON WIDE MAGNET)
+// SAFE ZERO HOMING DATUM (CONSTRAINED +/-20 DEG SCAN, NEVER FORCES MECHANICAL CRASH)
 // =============================================================================
 void findZeroHomeDatum() {
   printlnAll(F("\n[HOMING] Calibrating ZERO Position (0.0 deg Datum)..."));
 
+  // 1. If Hall sensor already detects magnet at 0.0 deg, confirm immediately
   if (digitalRead(PIN_HALL_HOME) == LOW) {
     currentAngle = 0.0f;
     isHomed = true;
@@ -696,10 +691,12 @@ void findZeroHomeDatum() {
   digitalWrite(PIN_STATUS_LED, LOW);
 
   bool foundMagnet = false;
-  long searchLimit = (long)(45.0f * STEPS_PER_DEGREE);
+  // Maximum search range is strictly limited to 20 degrees each way to protect physical linkage!
+  long maxSearchSteps = (long)(20.0f * STEPS_PER_DEGREE);
 
+  // Search in negative direction (LOW) up to 20 deg
   digitalWrite(PIN_DIR, LOW);
-  for (long s = 0; s < searchLimit; s++) {
+  for (long s = 0; s < maxSearchSteps; s++) {
     if (digitalRead(PIN_HALL_HOME) == LOW) {
       foundMagnet = true;
       break;
@@ -707,10 +704,15 @@ void findZeroHomeDatum() {
     stepPulse(ZERO_HOMING_SPEED_US);
   }
 
+  // If not found in negative direction, return to start and search in positive direction (HIGH) up to 20 deg
   if (!foundMagnet) {
+    // Return back the steps we just took
     digitalWrite(PIN_DIR, HIGH);
-    long fullSweep = (long)(90.0f * STEPS_PER_DEGREE);
-    for (long s = 0; s < fullSweep; s++) {
+    for (long s = 0; s < maxSearchSteps; s++) {
+      stepPulse(ZERO_HOMING_SPEED_US);
+    }
+    // Now search up to 20 deg into positive side
+    for (long s = 0; s < maxSearchSteps; s++) {
       if (digitalRead(PIN_HALL_HOME) == LOW) {
         foundMagnet = true;
         break;
@@ -720,8 +722,9 @@ void findZeroHomeDatum() {
   }
 
   if (foundMagnet) {
+    // Center on the magnet's active span
     long spanSteps = 0;
-    long maxSpan = (long)(20.0f * STEPS_PER_DEGREE);
+    long maxSpan = (long)(15.0f * STEPS_PER_DEGREE);
     uint8_t movingDir = digitalRead(PIN_DIR);
 
     while (digitalRead(PIN_HALL_HOME) == LOW && spanSteps < maxSpan) {
@@ -743,16 +746,58 @@ void findZeroHomeDatum() {
     printlnAll(F("[HOMING] Magnet centered successfully! ZERO Position LOCKED at 0.0 deg."));
     Serial1.flush();
   } else {
+    // Safely return to center position
+    digitalWrite(PIN_DIR, LOW);
+    for (long s = 0; s < maxSearchSteps; s++) {
+      stepPulse(ZERO_HOMING_SPEED_US);
+    }
     currentAngle = 0.0f;
     isHomed = true;
     lastTrackingStatus = "ZERO SYNCHRONIZED (0.0 deg)";
-    printlnAll(F("[WARN] Hall sensor not reached. Position synchronized to 0.0 deg."));
+    printlnAll(F("[WARN] Hall sensor magnet not detected in +/-20 deg window. Position synchronized to 0.0 deg."));
     Serial1.flush();
   }
 
   motorOff();
   digitalWrite(PIN_STATUS_LED, HIGH);
   printlnAll(F("--------------------------------------------------------------------------------"));
+  Serial1.flush();
+}
+
+// =============================================================================
+// TRANSITION TO AUTO MODE (MANDATORY RETURN TO ZERO DATUM BEFORE SUN TRACKING)
+// =============================================================================
+void transitionToAutoMode() {
+  printlnAll();
+  printlnAll(F("================================================================================"));
+  printlnAll(F(">>> [AUTO SWITCH] INITIATING SAFE AUTO SUN TRACKING PROTOCOL...                "));
+  printlnAll(F(">>> Step 1: Aligning solar slats to 0.0 deg ZERO DATUM before sun search...    "));
+  printlnAll(F("================================================================================"));
+
+  lastTrackingStatus = "ALIGNING TO 0.0 deg ZERO";
+  printTelemetry();
+  sendEsp32JsonTelemetry();
+
+  // 1. If currently at any non-zero angle, smoothly drive to 0.0 deg ZERO first
+  if (fabs(currentAngle) > 0.5f) {
+    printAll(F(">>> [AUTO SWITCH] Moving slats from current angle ("));
+    printAll(currentAngle, 1);
+    printlnAll(F(" deg) to 0.0 deg Center Datum..."));
+    moveToAngle(0.0f, ZERO_HOMING_SPEED_US);
+  }
+
+  // 2. Calibrate / Confirm physical ZERO datum with Hall sensor
+  findZeroHomeDatum();
+
+  // 3. Confirm exact zero datum and enable auto tracking
+  currentAngle = 0.0f;
+  isHomed = true;
+  isAutoTracking = true;
+  lastTrackingStatus = "ZERO LOCKED -> Sun Search Active";
+
+  printlnAll(F(">>> Step 2: Solar Slats LOCKED at 0.0 deg ZERO DATUM!"));
+  printlnAll(F(">>> Step 3: Reading 4 LDR Sensors -> Tracking Sun for 100% Parallel Alignment!"));
+  printlnAll(F("================================================================================\n"));
   Serial1.flush();
 }
 
@@ -890,6 +935,11 @@ void printTelemetry() {
 // MOTOR KINEMATIC CONTROL
 // =============================================================================
 void moveToAngle(float targetAngle, int speedUs) {
+  // HARD MECHANICAL PROTECTION: Never exceed -45.0 to +45.0 deg
+  if (targetAngle < -45.0f) targetAngle = -45.0f;
+  if (targetAngle > 45.0f) targetAngle = 45.0f;
+
+  // Safe operating boundaries: keep safely within MIN_ANGLE (-40.0 deg) and MAX_ANGLE (+40.0 deg)
   if (targetAngle < MIN_ANGLE) targetAngle = MIN_ANGLE;
   if (targetAngle > MAX_ANGLE) targetAngle = MAX_ANGLE;
 
@@ -897,6 +947,9 @@ void moveToAngle(float targetAngle, int speedUs) {
   if (fabs(deltaDeg) < 0.05f) return;
 
   long steps = (long)(fabs(deltaDeg) * STEPS_PER_DEGREE + 0.5f);
+  // Maximum travel cap in a single move: strictly limited to 90 degrees total physical span
+  long maxAllowedSteps = (long)(90.0f * STEPS_PER_DEGREE);
+  if (steps > maxAllowedSteps) steps = maxAllowedSteps;
   if (steps == 0) {
     currentAngle = targetAngle;
     return;
@@ -946,9 +999,7 @@ void handleCommand(char* cmd) {
   if (*cmd == 0) return;
 
   if (strcasecmp(cmd, "AUTO") == 0) {
-    isAutoTracking = true;
-    lastTrackingStatus = "AUTO (LDR Sun Tracking)";
-    printlnAll(F("\n[CMD] Auto Sun Tracking ENABLED!\n"));
+    transitionToAutoMode();
   } else if (strcasecmp(cmd, "MANUAL") == 0) {
     isAutoTracking = false;
     motorOff();
@@ -1053,9 +1104,49 @@ void handleCommand(char* cmd) {
     printlnAll(isAutoTracking ? F("AUTO (LDR Sun Tracking)") : F("MANUAL (Potentiometer Control)"));
     printlnAll();
   } else if (strcasecmp(cmd, "MODE") == 0 || strcasecmp(cmd, "TOGGLE") == 0) {
-    isAutoTracking = !isAutoTracking;
-    printAll(F("\n[CMD] Mode toggled via command to: "));
-    printlnAll(isAutoTracking ? F("AUTO (LDR Sun Tracking)") : F("MANUAL (Command / Pot)"));
+    if (!isAutoTracking) {
+      transitionToAutoMode();
+    } else {
+      isAutoTracking = false;
+      printlnAll(F("\n[CMD] Switched to MANUAL Mode (Potentiometer active).\n"));
+    }
+  } else if (strcasecmp(cmd, "RECOVER") == 0 || strcasecmp(cmd, "RECOVER_LEFT") == 0) {
+    printlnAll(F("\n[RECOVERY] Recovering mechanism from >+45 deg back to 0.0 deg ZERO..."));
+    motorOn();
+    digitalWrite(PIN_STATUS_LED, LOW);
+    digitalWrite(PIN_DIR, LOW); // Step in negative direction towards zero
+    long steps45 = (long)(45.0f * STEPS_PER_DEGREE);
+    for (long s = 0; s < steps45; s++) {
+      if (digitalRead(PIN_HALL_HOME) == LOW) {
+        printlnAll(F("[RECOVERY] Magnet detected! Centering on ZERO datum..."));
+        break;
+      }
+      stepPulse(ZERO_HOMING_SPEED_US);
+    }
+    motorOff();
+    digitalWrite(PIN_STATUS_LED, HIGH);
+    currentAngle = 0.0f;
+    isHomed = true;
+    lastTrackingStatus = "ZERO RECOVERED (0.0 deg)";
+    printlnAll(F("[RECOVERY] Slats recovered to ZERO position! Locked at 0.0 deg.\n"));
+  } else if (strncasecmp(cmd, "LEFT ", 5) == 0 || strncasecmp(cmd, "JOG_LEFT ", 9) == 0) {
+    float deg = parseCustomFloat(cmd + (*cmd == 'J' ? 9 : 5));
+    if (deg > 0.0f && deg <= 45.0f) {
+      isAutoTracking = false;
+      printAll(F("\n[JOG] Jogging slats LEFT by "));
+      printAll(deg, 1);
+      printlnAll(F(" deg..."));
+      moveToAngle(currentAngle - deg, TRACKING_SPEED_US);
+    }
+  } else if (strncasecmp(cmd, "RIGHT ", 6) == 0 || strncasecmp(cmd, "JOG_RIGHT ", 10) == 0) {
+    float deg = parseCustomFloat(cmd + (*cmd == 'J' ? 10 : 6));
+    if (deg > 0.0f && deg <= 45.0f) {
+      isAutoTracking = false;
+      printAll(F("\n[JOG] Jogging slats RIGHT by "));
+      printAll(deg, 1);
+      printlnAll(F(" deg..."));
+      moveToAngle(currentAngle + deg, TRACKING_SPEED_US);
+    }
   } else if (strcasecmp(cmd, "STATUS") == 0) {
     printlnAll(F("\n--- SYSTEM PARAMETERS ---"));
     printAll(F(" Angle          : "));
@@ -1195,6 +1286,9 @@ void printHelp() {
   printlnAll(F(" MODE / TOGGLE    : Toggle between AUTO and MANUAL mode    "));
   printlnAll(F(" SW / SWITCH      : Test PB12 & PB13 ON/OFF mode switch    "));
   printlnAll(F(" INVERT_SW        : Flip ON/OFF switch logic (ON<->OFF)    "));
+  printlnAll(F(" RECOVER          : Step 45 deg negative from >+45 deg to 0.0"));
+  printlnAll(F(" LEFT <deg>       : Jog slats towards negative (e.g. LEFT 10)"));
+  printlnAll(F(" RIGHT <deg>      : Jog slats towards positive (e.g. RIGHT 10)"));
   printlnAll(F(" GOTO <deg>       : Move slats to specific angle (-40 to +40)"));
   printlnAll(F(" ZERO             : Calibrate current position as 0.0 deg  "));
   printlnAll(F(" HOME             : Re-run Hall-effect ZERO calibration    "));
