@@ -101,8 +101,8 @@ const float STEPS_PER_DEGREE = 10.556f;  // 19:1 Worm gear ratio
 const float MIN_ANGLE = -45.0f;          // Hard Mechanical Structural Limit (-45.0 deg)
 const float MAX_ANGLE = 45.0f;           // Hard Mechanical Structural Limit (+45.0 deg)
 
-int deadbandThreshold = 150; // Calibrated deadband (reduced sensitivity, stable sun tracking)
-int nightDarkThreshold = 40;
+int deadbandThreshold = 25;  // Calibrated from live hardware: Balanced is +/-12, Tilted is 35-90
+int nightDarkThreshold = 500; // Night park threshold (active daylight is ~3950-4030)
 const unsigned long NIGHT_PARK_DELAY_MS = 8000;
 
 bool isAutoTracking = true;
