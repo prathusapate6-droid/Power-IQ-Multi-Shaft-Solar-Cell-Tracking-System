@@ -101,7 +101,7 @@ const float STEPS_PER_DEGREE = 10.556f;  // 19:1 Worm gear ratio
 const float MIN_ANGLE = -45.0f;          // Hard Mechanical Structural Limit (-45.0 deg)
 const float MAX_ANGLE = 45.0f;           // Hard Mechanical Structural Limit (+45.0 deg)
 
-int deadbandThreshold = 50;
+int deadbandThreshold = 150; // Calibrated deadband (reduced sensitivity, stable sun tracking)
 int nightDarkThreshold = 40;
 const unsigned long NIGHT_PARK_DELAY_MS = 8000;
 
@@ -426,8 +426,8 @@ void loop() {
     digitalWrite(PIN_ENABLE, HIGH);
   }
 
-  // 5. Sun Tracking (every 500ms in AUTO mode)
-  if (now - lastTrackTime >= 500) {
+  // 5. Sun Tracking (every 1000ms in AUTO mode to eliminate nervous rapid tracking)
+  if (now - lastTrackTime >= 1000) {
     lastTrackTime = now;
     if (isAutoTracking) {
       executeSunTracking();
@@ -869,19 +869,19 @@ void executeSunTracking() {
 
   frameCount++;
 
-  // 1. Read 4 LDRs
+  // 1. Read 4 LDRs (16x multisampling for noise immunity)
   long sumT1 = 0, sumT2 = 0, sumB1 = 0, sumB2 = 0;
-  for (int i = 0; i < 4; i++) {
+  for (int i = 0; i < 16; i++) {
     sumT1 += analogRead(PIN_LDR_TOP1);
     sumT2 += analogRead(PIN_LDR_TOP2);
     sumB1 += analogRead(PIN_LDR_BOT1);
     sumB2 += analogRead(PIN_LDR_BOT2);
-    delayMicroseconds(100);
+    delayMicroseconds(50);
   }
-  int rawT1 = sumT1 / 4;
-  int rawT2 = sumT2 / 4;
-  int rawB1 = sumB1 / 4;
-  int rawB2 = sumB2 / 4;
+  int rawT1 = sumT1 / 16;
+  int rawT2 = sumT2 / 16;
+  int rawB1 = sumB1 / 16;
+  int rawB2 = sumB2 / 16;
 
   int lightT1 = max(0, 4095 - rawT1);
   int lightT2 = max(0, 4095 - rawT2);
@@ -895,9 +895,14 @@ void executeSunTracking() {
   int diff = avgTop - avgBottom;
   if (invertMotorDir) diff = -diff;
 
+  // Anti-jitter low-pass filter on LDR difference (rejects transient shadows & AC ripple)
+  static float filteredDiff = 0.0f;
+  filteredDiff = (filteredDiff * 0.70f) + (diff * 0.30f);
+  int activeDiff = (int)filteredDiff;
+
   lastTopVal = avgTop;
   lastBotVal = avgBottom;
-  lastDiffVal = diff;
+  lastDiffVal = activeDiff;
 
   if (maxLight < nightDarkThreshold) {
     if (darknessStartMs == 0) darknessStartMs = millis();
@@ -918,10 +923,10 @@ void executeSunTracking() {
   } else {
     darknessStartMs = 0;
 
-    if (abs(diff) <= deadbandThreshold) {
+    if (abs(activeDiff) <= deadbandThreshold) {
       lastTrackingStatus = "SUN BALANCED (Optimum Yield)";
       motorOff();
-    } else if (diff > deadbandThreshold) {
+    } else if (activeDiff > deadbandThreshold) {
       float nextAngle = currentAngle + 1.0f;
       if (nextAngle <= MAX_ANGLE) {
         lastTrackingStatus = "TRACKING SUN (+)";
