@@ -714,7 +714,7 @@ export const SolarPowerChart: React.FC<SolarPowerChartProps> = ({
           </div>
           <div>
             <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
-              {activeMetric === 'all' && 'सर्व पॅरामीटर्स एकत्र (All-in-One Synchronous Chart)'}
+              {activeMetric === 'all' && 'All-in-One Synchronous Telemetry Chart'}
               {activeMetric === 'power' && 'Solar Generation Profile (0 – 50W Scale)'}
               {activeMetric === 'voltage' && 'Solar PV & Battery Voltage Dynamics (0 – 20V Scale)'}
               {activeMetric === 'climate' && 'Panel Temperature & Humidity Curve (DHT11 Sensor)'}
@@ -793,7 +793,7 @@ export const SolarPowerChart: React.FC<SolarPowerChartProps> = ({
             <div className="flex flex-wrap items-center gap-1.5">
               <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mr-1 flex items-center gap-1">
                 <Eye className="w-3 h-3 text-slate-400" />
-                पॅरामीटर्स:
+                Parameters:
               </span>
 
               {/* 1. Tracking Power Pill */}
@@ -909,7 +909,7 @@ export const SolarPowerChart: React.FC<SolarPowerChartProps> = ({
                 onClick={selectAllLines}
                 className="px-2 py-0.5 text-[10px] font-bold text-slate-600 hover:text-slate-900 bg-white hover:bg-slate-100 rounded border border-slate-200 transition"
               >
-                सर्व ऑन
+                All ON
               </button>
               <button
                 type="button"
@@ -917,7 +917,7 @@ export const SolarPowerChart: React.FC<SolarPowerChartProps> = ({
                 className="px-2 py-0.5 text-[10px] font-bold text-slate-600 hover:text-slate-900 bg-white hover:bg-slate-100 rounded border border-slate-200 transition flex items-center gap-1"
               >
                 <RefreshCw className="w-2.5 h-2.5 text-slate-500" />
-                मुख्य 4
+                Core 4
               </button>
             </div>
           </div>
