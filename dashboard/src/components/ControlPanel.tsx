@@ -8,7 +8,8 @@ import {
   Hand, 
   Compass, 
   ShieldCheck,
-  Zap
+  Zap,
+  RefreshCw
 } from 'lucide-react';
 import type { TrackingMode } from '../types/dashboard';
 
@@ -22,6 +23,7 @@ interface ControlPanelProps {
   actualAngle: number;
   isHardwareOnline?: boolean;
   onZeroCurrent?: () => void;
+  onInvertMotor?: () => void;
 }
 
 export const ControlPanel: React.FC<ControlPanelProps> = ({
@@ -34,6 +36,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   actualAngle,
   isHardwareOnline = false,
   onZeroCurrent,
+  onInvertMotor,
 }) => {
   return (
     <div className="bg-white rounded-xl p-5 border border-slate-200/90 shadow-xs mb-6">
@@ -72,7 +75,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
       </div>
 
       {/* Control Buttons Grid */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
+      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2.5">
         {/* Automatic Tracking Toggle */}
         <button
           onClick={onToggleAuto}
@@ -144,6 +147,22 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
           </div>
           <span className="text-[10px] text-slate-500 font-mono">Hall Zero Datum</span>
         </button>
+
+        {/* Invert Motor Tracking Direction */}
+        {onInvertMotor && (
+          <button
+            onClick={onInvertMotor}
+            disabled={isEmergencyStopped}
+            className="flex flex-col items-center justify-center p-3 rounded-xl border border-purple-200 bg-purple-50/50 text-purple-800 hover:bg-purple-100 transition shadow-xs disabled:opacity-50 cursor-pointer"
+            title="Invert Sun Tracking Motor Direction (+ / -)"
+          >
+            <div className="flex items-center gap-1 mb-1">
+              <RefreshCw className="w-4 h-4 text-purple-600" />
+              <span className="text-xs font-bold">Invert (+/-)</span>
+            </div>
+            <span className="text-[10px] text-purple-600 font-mono">Flip Direction</span>
+          </button>
+        )}
 
         {/* Zero Current or Emergency Stop */}
         {isHardwareOnline && onZeroCurrent ? (

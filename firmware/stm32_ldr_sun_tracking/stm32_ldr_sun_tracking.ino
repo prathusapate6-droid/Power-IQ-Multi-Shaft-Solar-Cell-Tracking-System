@@ -374,34 +374,50 @@ void loop() {
 
 void handleManualControls() {
   // 1. Mode Toggle Button Debouncing (PB12)
+  static bool lastBtnStable = HIGH;
+  static bool lastBtnReading = HIGH;
+  static unsigned long lastDebounceMs = 0;
+
   bool reading = digitalRead(PIN_BTN_MODE);
-  if (reading != lastBtnState) {
-    lastBtnDebounceMs = millis();
+  if (reading != lastBtnReading) {
+    lastDebounceMs = millis();
+    lastBtnReading = reading;
   }
-  if ((millis() - lastBtnDebounceMs) > 50) {
-    // If state has stabilized and button is pressed (Active LOW)
-    if (reading == LOW && lastBtnState == HIGH) {
-      isAutoTracking = !isAutoTracking;
-      printlnAll();
-      printAll(F(">>> [MODE SWITCH] Mode changed by hardware button to: "));
-      printlnAll(isAutoTracking ? F("AUTO (LDR Sun Tracking)") : F("MANUAL (Potentiometer Knob)"));
-      printlnAll();
-      Serial1.flush();
+
+  if ((millis() - lastDebounceMs) > 50) {
+    if (reading != lastBtnStable) {
+      lastBtnStable = reading;
+      // Button pressed (Active LOW)
+      if (lastBtnStable == LOW) {
+        isAutoTracking = !isAutoTracking;
+        printlnAll();
+        printAll(F(">>> [MODE SWITCH] Mode changed by hardware button to: "));
+        printlnAll(isAutoTracking ? F("AUTO (LDR Sun Tracking)") : F("MANUAL (Command / Pot)"));
+        printlnAll();
+        Serial1.flush();
+      }
     }
   }
-  lastBtnState = reading;
 
-  // 2. In MANUAL mode, potentiometer on PB0 sets slat angle directly
+  // 2. In MANUAL mode:
+  // If a potentiometer on PB0 is physically present and intentionally turned, update angle.
+  // Otherwise, maintain the current commanded angle (do not fight GOTO / dashboard jog commands).
   if (!isAutoTracking) {
-    lastTrackingStatus = "MANUAL (Potentiometer Control)";
+    static int lastPotVal = -999;
     int rawPot = analogRead(PIN_POT_MANUAL);
-    // Transfer function: 0 -> -40 deg, 2048 -> 0 deg, 4095 -> +40 deg
-    float potAngle = ((rawPot / 4095.0f) * 80.0f) - 40.0f;
 
-    // Apply 1.0 deg deadband to avoid continuous micro-jitter
-    if (fabs(potAngle - currentAngle) >= 1.0f) {
-      moveToAngle(potAngle, TRACKING_SPEED_US);
-      lastPotTargetAngle = potAngle;
+    if (lastPotVal == -999) {
+      lastPotVal = rawPot;
+    }
+
+    // Only move if pot is turned intentionally by > 120 ADC counts (avoids floating pin noise)
+    if (abs(rawPot - lastPotVal) > 120) {
+      lastPotVal = rawPot;
+      float potAngle = ((rawPot / 4095.0f) * 80.0f) - 40.0f;
+      if (fabs(potAngle - currentAngle) >= 1.0f) {
+        lastTrackingStatus = "MANUAL (Potentiometer Control)";
+        moveToAngle(potAngle, TRACKING_SPEED_US);
+      }
     }
   }
 }
@@ -736,8 +752,10 @@ void motorOff() {
 // =============================================================================
 // SERIAL COMMAND PARSER
 // =============================================================================
-static char cmdBuf[32];
-static byte cmdPos = 0;
+static char cmdBuf1[48];
+static byte cmdPos1 = 0;
+static char cmdBuf2[48];
+static byte cmdPos2 = 0;
 
 void handleCommand(char* cmd) {
   while (*cmd == ' ') cmd++;
@@ -745,10 +763,18 @@ void handleCommand(char* cmd) {
 
   if (strcasecmp(cmd, "AUTO") == 0) {
     isAutoTracking = true;
+    lastTrackingStatus = "AUTO (LDR Sun Tracking)";
     printlnAll(F("\n[CMD] Auto Sun Tracking ENABLED!\n"));
-  } else if (strcasecmp(cmd, "MANUAL") == 0 || strcasecmp(cmd, "STOP") == 0) {
+  } else if (strcasecmp(cmd, "MANUAL") == 0) {
     isAutoTracking = false;
-    printlnAll(F("\n[CMD] Manual control active (Potentiometer knob enabled).\n"));
+    motorOff();
+    lastTrackingStatus = "MANUAL MODE";
+    printlnAll(F("\n[CMD] Manual mode active (Awaiting remote GOTO/JOG or Potentiometer).\n"));
+  } else if (strcasecmp(cmd, "STOP") == 0) {
+    isAutoTracking = false;
+    motorOff();
+    lastTrackingStatus = "EMERGENCY STOP (Coils OFF)";
+    printlnAll(F("\n[CMD] EMERGENCY STOP: Motor coils disabled.\n"));
   } else if (strcasecmp(cmd, "HOME") == 0) {
     isAutoTracking = false;
     findZeroHomeDatum();
@@ -756,6 +782,7 @@ void handleCommand(char* cmd) {
   } else if (strcasecmp(cmd, "ZERO") == 0) {
     currentAngle = 0.0f;
     isHomed = true;
+    lastTrackingStatus = "ZERO LOCKED (0.0 deg)";
     printlnAll(F("\n[CMD] Current position calibrated as 0.0 deg ZERO.\n"));
   } else if (strcasecmp(cmd, "INVERT") == 0) {
     invertMotorDir = !invertMotorDir;
@@ -834,6 +861,8 @@ void handleCommand(char* cmd) {
     printlnAll(STEPS_PER_DEGREE, 4);
     printAll(F(" Deadband       : "));
     printlnAll(deadbandThreshold);
+    printAll(F(" Direction      : "));
+    printlnAll(invertMotorDir ? F("REVERSED") : F("NORMAL"));
     printAll(F(" Hall Magnet    : "));
     printlnAll(digitalRead(PIN_HALL_HOME) == LOW ? F("DETECTED") : F("OPEN"));
     printlnAll(F("-------------------------\n"));
@@ -846,6 +875,10 @@ void handleCommand(char* cmd) {
     if (strncasecmp(cmd, "GOTO ", 5) == 0) {
       target = parseCustomFloat(cmd + 5);
       isAngle = true;
+    } else if (strncasecmp(cmd, "JOG ", 4) == 0) {
+      float delta = parseCustomFloat(cmd + 4);
+      target = currentAngle + delta;
+      isAngle = true;
     } else if (strncasecmp(cmd, "MOVE ", 5) == 0) {
       target = parseCustomFloat(cmd + 5);
       isAngle = true;
@@ -855,16 +888,17 @@ void handleCommand(char* cmd) {
     }
 
     if (isAngle) {
-      if (target < MIN_ANGLE || target > MAX_ANGLE) {
-        printAll(F("\n[ERROR] Target "));
-        printAll(target, 1);
-        printlnAll(F(" deg outside safe range [-40 to +40 deg]!\n"));
-        return;
-      }
+      if (target < MIN_ANGLE) target = MIN_ANGLE;
+      if (target > MAX_ANGLE) target = MAX_ANGLE;
       isAutoTracking = false;
-      printlnAll(F("\n[MANUAL] Moving to commanded angle..."));
+      lastTrackingStatus = "MANUAL COMMAND POSITION";
+      printAll(F("\n[MANUAL] Moving slats to "));
+      printAll(target, 1);
+      printlnAll(F(" deg..."));
       moveToAngle(target, TRACKING_SPEED_US);
-      printlnAll(F("[MANUAL] Reached. (Type 'AUTO' or press button to resume sun tracking)\n"));
+      printAll(F("[MANUAL] Reached "));
+      printAll(currentAngle, 1);
+      printlnAll(F(" deg. (Type 'AUTO' to resume sun tracking)\n"));
     }
   }
 }
@@ -875,13 +909,13 @@ void processSerialInput() {
     char c = Serial1.read();
     if (c == '\r') continue;
     if (c == '\n') {
-      cmdBuf[cmdPos] = '\0';
-      if (cmdPos > 0) {
-        handleCommand(cmdBuf);
-        cmdPos = 0;
+      cmdBuf1[cmdPos1] = '\0';
+      if (cmdPos1 > 0) {
+        handleCommand(cmdBuf1);
+        cmdPos1 = 0;
       }
-    } else if (cmdPos < sizeof(cmdBuf) - 1) {
-      cmdBuf[cmdPos++] = c;
+    } else if (cmdPos1 < sizeof(cmdBuf1) - 1) {
+      cmdBuf1[cmdPos1++] = c;
     }
   }
 
@@ -890,13 +924,13 @@ void processSerialInput() {
     char c = Serial2.read();
     if (c == '\r') continue;
     if (c == '\n') {
-      cmdBuf[cmdPos] = '\0';
-      if (cmdPos > 0) {
-        handleCommand(cmdBuf);
-        cmdPos = 0;
+      cmdBuf2[cmdPos2] = '\0';
+      if (cmdPos2 > 0) {
+        handleCommand(cmdBuf2);
+        cmdPos2 = 0;
       }
-    } else if (cmdPos < sizeof(cmdBuf) - 1) {
-      cmdBuf[cmdPos++] = c;
+    } else if (cmdPos2 < sizeof(cmdBuf2) - 1) {
+      cmdBuf2[cmdPos2++] = c;
     }
   }
 }

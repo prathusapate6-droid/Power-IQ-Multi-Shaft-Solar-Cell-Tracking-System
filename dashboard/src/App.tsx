@@ -117,6 +117,7 @@ export const App: React.FC = () => {
               actualAngle={tracking.actualShaftAngle}
               isHardwareOnline={isHardwareOnline}
               onZeroCurrent={() => sendCommand('ZERO_CURR')}
+              onInvertMotor={() => sendCommand('INVERT')}
             />
           </div>
         )}
