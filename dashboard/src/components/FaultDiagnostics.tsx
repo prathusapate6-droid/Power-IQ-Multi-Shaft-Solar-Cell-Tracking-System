@@ -125,26 +125,16 @@ export const FaultDiagnostics: React.FC<FaultDiagnosticsProps> = ({
           </div>
         </div>
 
-        {/* Live Bilingual Insights Box */}
-        <div className="bg-slate-950/70 rounded-lg p-3.5 border border-indigo-400/20 space-y-2 relative z-10 font-sans">
+        {/* Live English AI Insight Box */}
+        <div className="bg-slate-950/70 rounded-lg p-3.5 border border-indigo-400/20 relative z-10 font-sans">
           <div className="flex items-start gap-2">
-            <span className="text-[10px] font-mono font-bold uppercase px-1.5 py-0.5 rounded bg-indigo-800/80 text-indigo-200 border border-indigo-600/40 mt-0.5 shrink-0">
-              AI Insight (EN)
+            <span className="text-[10px] font-mono font-bold uppercase px-2 py-0.5 rounded bg-indigo-800/80 text-indigo-200 border border-indigo-600/40 mt-0.5 shrink-0">
+              AI Insight
             </span>
-            <p className="text-xs text-slate-200 leading-relaxed">
+            <p className="text-xs text-slate-200 leading-relaxed font-sans">
               {ai.aiInsightText}
             </p>
           </div>
-          {ai.aiInsightTextMr && (
-            <div className="flex items-start gap-2 pt-2 border-t border-indigo-500/20">
-              <span className="text-[10px] font-mono font-bold uppercase px-1.5 py-0.5 rounded bg-amber-900/60 text-amber-200 border border-amber-600/40 mt-0.5 shrink-0">
-                AI विश्लेषण (मराठी)
-              </span>
-              <p className="text-xs text-amber-100/90 leading-relaxed font-sans">
-                {ai.aiInsightTextMr}
-              </p>
-            </div>
-          )}
         </div>
 
         {/* Technical Architecture Specs Bar */}

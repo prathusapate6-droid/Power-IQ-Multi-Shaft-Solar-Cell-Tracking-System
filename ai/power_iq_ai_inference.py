@@ -90,35 +90,17 @@ class PowerIqCustomAi:
         elif status == "NIGHT_HOLD":
             score = 98
 
-        # 4. Generate Natural Language AI Diagnosis (Marathi + English)
+        # 4. Generate Natural Language AI Diagnosis (100% English)
         insights = {
-            "NOMINAL": {
-                "en": f"System operating at peak efficiency (Yield: {solar_w:.1f}W). All kinematics within +/-35 deg limit.",
-                "mr": f"सिस्टीम उत्तम कार्यक्षमतेवर चालू आहे (पॉवर: {solar_w:.1f}W). सर्व ८ शाफ्ट्स +35° ते -35° मर्यादेत अचूक ट्रॅक करत आहेत."
-            },
-            "SOILED_PANEL": {
-                "en": f"Solar yield suppressed by ~40% despite bright sun. Panel cleaning advised to recover lost power.",
-                "mr": f"सूर्यप्रकाश भरपूर असूनही पॉवर ~४०% कमी मिळत आहे. पॅनलवर धूळ जमली आहे, पॅनल स्वच्छ करण्याचा सल्ला दिला जातो."
-            },
-            "MECHANICAL_JAM": {
-                "en": f"CRITICAL: Elevated motor current ({motor_i:.2f}A) indicates mechanical friction or worm gear binding!",
-                "mr": f"गंभीर इशारा: मोटर करंट वाढला आहे ({motor_i:.2f}A). वर्म गिअर किंवा शाफ्टमध्ये घर्षण/कचरा अडकल्याची शक्यता आहे!"
-            },
-            "BATTERY_UNDERVOLTAGE": {
-                "en": f"Battery bank voltage low ({batt_v:.2f}V). Auxiliary charging active to prevent deep cell discharge.",
-                "mr": f"बॅटरी व्होल्टेज कमी आहे ({batt_v:.2f}V). बॅटरी खराब होऊ नये म्हणून सोलर चार्जिंगला प्राधान्य दिले जात आहे."
-            },
-            "THERMAL_OVERHEAT": {
-                "en": f"Thermal warning: ambient/driver temperature ({temp_c:.1f}C) exceeds 48C. Motor holding to cool coils.",
-                "mr": f"तापमान चेतावणी: तापमान {temp_c:.1f}°C वर गेले आहे. मोटर ड्रायव्हर सुरक्षित ठेवण्यासाठी मोशन थांबवली आहे."
-            },
-            "NIGHT_HOLD": {
-                "en": "Darkness / night mode detected. Slats parked safely at 0.0 deg ZERO datum.",
-                "mr": "रात्र किंवा अंधार आढळला आहे. पॅनल 0.0° ZERO पोझिशनवर सुरक्षित पार्क केले आहे."
-            }
+            "NOMINAL": f"System operating at peak efficiency (Yield: {solar_w:.1f}W). All kinematics within +/-35 deg limit.",
+            "SOILED_PANEL": f"Solar yield suppressed by ~40% despite bright sun. Panel cleaning advised to recover lost power.",
+            "MECHANICAL_JAM": f"CRITICAL: Elevated motor current ({motor_i:.2f}A) indicates mechanical friction or worm gear binding!",
+            "BATTERY_UNDERVOLTAGE": f"Battery bank voltage low ({batt_v:.2f}V). Auxiliary charging active to prevent deep cell discharge.",
+            "THERMAL_OVERHEAT": f"Thermal warning: ambient/driver temperature ({temp_c:.1f}C) exceeds 48C. Motor holding to cool coils.",
+            "NIGHT_HOLD": "Darkness / night mode detected. Slats parked safely at 0.0 deg ZERO datum."
         }
 
-        insight_obj = insights.get(status, insights["NOMINAL"])
+        ai_insight = insights.get(status, insights["NOMINAL"])
 
         return {
             "ai_engine": "POWER IQ Custom In-House Random Forest & Decision Tree",
@@ -127,8 +109,7 @@ class PowerIqCustomAi:
             "confidence_pct": confidence,
             "health_score": score,
             "recommended_action": action,
-            "ai_insight_en": insight_obj["en"],
-            "ai_insight_mr": insight_obj["mr"],
+            "ai_insight": ai_insight,
             "metrics": {
                 "solar_power_w": solar_w,
                 "solar_voltage_v": solar_v,
@@ -167,8 +148,7 @@ def main():
     res1 = ai.diagnose(sample_nominal)
     print(f"Status: {res1['system_status']} (Confidence: {res1['confidence_pct']}%) | Health Score: {res1['health_score']}%")
     print(f"Action: {res1['recommended_action']}")
-    print(f"English: {res1['ai_insight_en']}")
-    print(f"मराठी  : {res1['ai_insight_mr']}")
+    print(f"AI Insight: {res1['ai_insight']}")
 
     # Test 2: Injected Mechanical Friction Test Frame
     print("\n[Test 2] High Friction Anomaly (Motor Current Spike to 2.35A):")
@@ -188,8 +168,7 @@ def main():
     res2 = ai.diagnose(sample_jam)
     print(f"Status: {res2['system_status']} (Confidence: {res2['confidence_pct']}%) | Health Score: {res2['health_score']}%")
     print(f"Action: {res2['recommended_action']}")
-    print(f"English: {res2['ai_insight_en']}")
-    print(f"मराठी  : {res2['ai_insight_mr']}")
+    print(f"AI Insight: {res2['ai_insight']}")
 
     # Test 3: Soiled / Dirty Panel Test Frame
     print("\n[Test 3] Dusty / Soiled Panel Anomaly (Bright Sun but 4.5W output):")
@@ -209,8 +188,7 @@ def main():
     res3 = ai.diagnose(sample_dust)
     print(f"Status: {res3['system_status']} (Confidence: {res3['confidence_pct']}%) | Health Score: {res3['health_score']}%")
     print(f"Action: {res3['recommended_action']}")
-    print(f"English: {res3['ai_insight_en']}")
-    print(f"मराठी  : {res3['ai_insight_mr']}")
+    print(f"AI Insight: {res3['ai_insight']}")
 
     print("\n" + "=" * 65)
 

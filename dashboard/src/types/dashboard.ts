@@ -90,7 +90,6 @@ export interface AiDiagnostics {
   hallDatumStatus: 'ALIGNED' | 'CALIBRATION_DUE';
   cleaningRecommended: boolean;
   aiInsightText: string;
-  aiInsightTextMr?: string;
   activeScenario?: 'NONE' | 'DUST_SOILING' | 'SHORT_CIRCUIT' | 'THERMAL_OVERHEAT' | 'LOW_BATTERY';
   faultInjected: boolean;
 }

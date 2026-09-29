@@ -171,8 +171,7 @@ class TelemetryBridge:
 
                 print(f"[{time.strftime('%H:%M:%S')}] Slat: {angle}° | Motion: {'MOVING' if moving else 'LOCKED'} | Health: {health}% [{status} ({conf}%)] | Action: {action}")
                 if custom_diag:
-                    print(f"    🤖 AI Insight (EN): {custom_diag['ai_insight_en']}")
-                    print(f"    🇮🇳 AI Insight (MR): {custom_diag['ai_insight_mr']}")
+                    print(f"    🤖 AI Insight: {custom_diag['ai_insight']}")
 
                 time.sleep(interval_sec)
             except KeyboardInterrupt:
