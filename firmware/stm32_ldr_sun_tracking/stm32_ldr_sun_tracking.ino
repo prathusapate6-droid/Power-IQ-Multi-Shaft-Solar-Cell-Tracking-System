@@ -350,8 +350,7 @@ void setup() {
   pinMode(PIN_LDR_TOP2, INPUT);
   pinMode(PIN_LDR_BOT1, INPUT);
   pinMode(PIN_LDR_BOT2, INPUT);
-  //pinMode(PIN_HALL_HOME, INPUT_PULLUP);
-  pinMode(PIN_HALL_HOME, INPUT);
+  pinMode(PIN_HALL_HOME, INPUT_PULLUP);  // Internal pull-up (Active LOW when magnet detected)
 
   pinMode(PIN_POT_MANUAL, INPUT);
   pinMode(PIN_SW_MODE, INPUT_PULLUP);      // PB12 ON/OFF switch (Active LOW to GND)
@@ -382,8 +381,14 @@ void setup() {
   // 4. Initial Sensor Readings
   updatePowerSensors();
 
-  // 5. Calibrate ZERO Datum (allows DHT11 power to stabilize)
-  findZeroHomeDatum();
+  // 5. Check if Hall sensor detects magnet at boot
+  if (digitalRead(PIN_HALL_HOME) == LOW) {
+    currentAngle = 0.0f;
+    isHomed = true;
+    printlnAll(F("[BOOT] Hall magnet detected: 0.0 deg ZERO datum LOCKED."));
+  } else {
+    printlnAll(F("[BOOT] Use Pot or 'ZERO' command to align physical slats to 0.0 deg."));
+  }
 
   // 6. Read Environment Sensor after homing stabilization
   updateDhtSensors();
@@ -740,11 +745,13 @@ void findZeroHomeDatum() {
     printlnAll(F("[HOMING] Magnet centered successfully! ZERO Position LOCKED at 0.0 deg."));
     Serial1.flush();
   } else {
-    // Magnet was not reached: Stop safely. DO NOT reverse or drive into crash stop!
-    currentAngle = 0.0f;
-    isHomed = true;
-    lastTrackingStatus = "ZERO SYNCHRONIZED (0.0 deg)";
-    printlnAll(F("[HOMING] Sweep completed. Position calibrated as 0.0 deg ZERO DATUM."));
+    // Magnet was not reached: Step back to original position to prevent tilting
+    digitalWrite(PIN_DIR, (homeDir == HIGH) ? LOW : HIGH);
+    for (long s = 0; s < maxSteps; s++) {
+      stepPulse(ZERO_HOMING_SPEED_US);
+    }
+    printlnAll(F("[HOMING] No magnet detected. Returned to start position."));
+    printlnAll(F("[HOMING] Use Potentiometer or 'ZERO' command to calibrate."));
     Serial1.flush();
   }
 
@@ -759,11 +766,9 @@ void findZeroHomeDatum() {
 // =============================================================================
 void transitionToAutoMode() {
   printBar();
-  printlnAll(F("[AUTO SWITCH] Aligning slats to 0.0 deg ZERO datum..."));
+  printlnAll(F("[AUTO SWITCH] Returning slats to 0.0 deg ZERO datum..."));
 
   lastTrackingStatus = "ALIGNING TO 0.0 deg ZERO";
-  printTelemetry();
-  sendEsp32JsonTelemetry();
 
   // 1. If currently at any non-zero angle, smoothly drive to 0.0 deg ZERO first
   if (fabs(currentAngle) > 0.5f) {
@@ -773,8 +778,10 @@ void transitionToAutoMode() {
     moveToAngle(0.0f, ZERO_HOMING_SPEED_US);
   }
 
-  // 2. Calibrate / Confirm physical ZERO datum with Hall sensor
-  findZeroHomeDatum();
+  // 2. Check if Hall sensor detects magnet at 0.0 deg
+  if (digitalRead(PIN_HALL_HOME) == LOW) {
+    printlnAll(F("[AUTO SWITCH] Hall Magnet confirmed at 0.0 deg ZERO."));
+  }
 
   // 3. Confirm exact zero datum and enable auto tracking
   currentAngle = 0.0f;
@@ -784,6 +791,8 @@ void transitionToAutoMode() {
 
   printlnAll(F("[AUTO SWITCH] ZERO Locked! Auto Sun Tracking active."));
   printBar();
+  printTelemetry();
+  sendEsp32JsonTelemetry();
   Serial1.flush();
 }
 
@@ -1000,11 +1009,13 @@ void handleCommand(char* cmd) {
     isAutoTracking = false;
     findZeroHomeDatum();
     isAutoTracking = true;
-  } else if (strcasecmp(cmd, "ZERO") == 0) {
+  } else if (strcasecmp(cmd, "ZERO") == 0 || strcasecmp(cmd, "CAL_ZERO") == 0) {
     currentAngle = 0.0f;
     isHomed = true;
     lastTrackingStatus = "ZERO LOCKED (0.0 deg)";
-    printlnAll(F("\n[CMD] Current position calibrated as 0.0 deg ZERO.\n"));
+    printlnAll(F("\n[CMD] Physical position CALIBRATED as 0.0 deg ZERO datum!\n"));
+    printTelemetry();
+    sendEsp32JsonTelemetry();
   } else if (strcasecmp(cmd, "INVERT") == 0) {
     invertMotorDir = !invertMotorDir;
     printAll(F("\n[CMD] Tracking direction inverted: "));
