@@ -78,6 +78,7 @@ float refVoltage = 3.3f;                                          // STM32 ADC R
 float currentSensitivity = 0.216f;  // Calibrated for 2.0A max solar panels (ACS712-05B: 185-216 mV/A)
 float currentZeroOffset = 2.50f;    // Auto-calibrated at boot (Nominal 2.5V for 5V ACS712)
 float lastCurrentDiffVolt = 0.0f;
+float lastAdcCurrS = 2.50f;
 
 float solarVoltage = 0.0f;  // Volts
 float solarCurrent = 0.0f;  // Amps
@@ -618,7 +619,15 @@ void calibrateCurrentSensor() {
     sum += analogRead(PIN_SOLAR_CURR);
     delayMicroseconds(250);
   }
-  currentZeroOffset = ((sum / 64.0f) * refVoltage) / 4095.0f;
+  float bootVolt = ((sum / 64.0f) * refVoltage) / 4095.0f;
+  lastAdcCurrS = bootVolt;
+  // If reading is near 2.50V (+/-0.15V), calibrate quiescent baseline.
+  // If deviating (>0.15V), load is active at boot: keep 2.50V so current is not zeroed!
+  if (fabs(bootVolt - 2.50f) <= 0.15f) {
+    currentZeroOffset = bootVolt;
+  } else {
+    currentZeroOffset = 2.50f;
+  }
 }
 
 // =============================================================================
@@ -646,16 +655,19 @@ void updatePowerSensors() {
     delayMicroseconds(40);
   }
   float adcCurrS = ((sumSC / 16.0f) * refVoltage) / 4095.0f;
+  lastAdcCurrS = adcCurrS;
   float diffVolt = adcCurrS - currentZeroOffset;
   lastCurrentDiffVolt = diffVolt;
+  float absDiff = fabs(diffVolt);
 
-  // Deadband around zero: if difference is less than 30mV (~0.15A), force 0.00 A
-  if (fabs(diffVolt) < 0.030f) {
+  // Deadband around zero: if difference is less than 20mV (~0.09A), force 0.00 A
+  if (absDiff < 0.020f) {
     solarCurrent = 0.0f;
   } else {
-    solarCurrent = diffVolt / currentSensitivity;
-    if (solarCurrent < 0.10f) solarCurrent = 0.0f;  // Positive unidirectional solar flow
-    if (solarCurrent > 2.05f) solarCurrent = 2.00f; // Panel 2A physical saturation cap
+    // Bidirectional sensing: absDiff works for both wiring polarities
+    solarCurrent = absDiff / currentSensitivity;
+    if (solarCurrent < 0.05f) solarCurrent = 0.0f;   // Clean noise floor
+    if (solarCurrent > 2.05f) solarCurrent = 2.00f;  // Panel 2A physical saturation cap
   }
 
   // 3. Solar Power (Watts)
@@ -1055,10 +1067,33 @@ void handleCommand(char* cmd) {
       printlnAll(deadbandThreshold);
     }
   } else if (strcasecmp(cmd, "ZERO_CURR") == 0 || strcasecmp(cmd, "CAL_CURR") == 0) {
-    calibrateCurrentSensor();
-    printAll(F("\n[CMD] Current Zero Baseline calibrated to: "));
+    long sum = 0;
+    for (int i = 0; i < 64; i++) {
+      sum += analogRead(PIN_SOLAR_CURR);
+      delayMicroseconds(250);
+    }
+    currentZeroOffset = ((sum / 64.0f) * refVoltage) / 4095.0f;
+    printAll(F("\n[CMD] Zero Baseline calibrated: "));
     printAll(currentZeroOffset, 3);
-    printlnAll(F(" V -> Current is now 0.00 A\n"));
+    printlnAll(F(" V\n"));
+  } else if (strncasecmp(cmd, "SET_ZERO ", 9) == 0 || strncasecmp(cmd, "ZERO_VOLT ", 10) == 0) {
+    float val = parseCustomFloat(cmd + (*cmd == 'S' ? 9 : 10));
+    if (val >= 1.0f && val <= 3.3f) {
+      currentZeroOffset = val;
+      printAll(F("\n[CMD] Zero Baseline set to: "));
+      printAll(currentZeroOffset, 3);
+      printlnAll(F(" V\n"));
+    }
+  } else if (strcasecmp(cmd, "CURR") == 0 || strcasecmp(cmd, "CURRENT") == 0 || strcasecmp(cmd, "ACS") == 0) {
+    printBar();
+    printAll(F("[ACS712] PA7: ")); printAll(lastAdcCurrS, 3);
+    printAll(F("V | Offset: ")); printAll(currentZeroOffset, 3);
+    printAll(F("V | Diff: ")); printAll(lastCurrentDiffVolt, 3);
+    printAll(F("V\n[ACS712] Current: ")); printAll(solarCurrent, 2);
+    printAll(F("A | Power: ")); printAll(solarPower, 2);
+    printAll(F("W | Sens: ")); printAll(currentSensitivity, 3);
+    printlnAll(F(" V/A"));
+    printBar();
   } else if (strncasecmp(cmd, "CAL_AMP ", 8) == 0 || strncasecmp(cmd, "AMP ", 4) == 0) {
     float targetAmp = parseCustomFloat(cmd + (*cmd == 'C' ? 8 : 4));
     if (targetAmp > 0.05f && targetAmp <= 5.0f && fabs(lastCurrentDiffVolt) > 0.02f) {
@@ -1165,7 +1200,8 @@ void handleCommand(char* cmd) {
     printAll(F("Solar: ")); printAll(solarVoltage, 2); printAll(F("V | "));
     printAll(solarCurrent, 2); printAll(F("A | "));
     printAll(solarPower, 2); printlnAll(F("W"));
-    printAll(F("Batt: ")); printAll(battVoltage, 2); printlnAll(F("V"));
+    printAll(F("Batt: ")); printAll(battVoltage, 2); printAll(F("V | ACS Off: "));
+    printAll(currentZeroOffset, 2); printlnAll(F("V"));
     printAll(F("Temp: ")); printAll(currentTemp, 1); printAll(F("C | Hum: "));
     printAll(currentHumidity, 1); printlnAll(F("%"));
     printBar();
@@ -1242,6 +1278,6 @@ void printHelp() {
   printBar();
   printlnAll(F("CMDS: AUTO | MANUAL | MODE | SW | INVERT_SW | INVERT_POT"));
   printlnAll(F("      RECOVER | LEFT <deg> | RIGHT <deg> | GOTO <deg>"));
-  printlnAll(F("      ZERO | HOME | STATUS | DHT | DEADBAND <n> | VREF <f>"));
+  printlnAll(F("      ZERO | HOME | STATUS | DHT | CURR | SET_ZERO <f>"));
   printBar();
 }
