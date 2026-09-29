@@ -44,8 +44,8 @@
 // =============================================================================
 // 1. USER SPEED & TIMING VARIABLES
 // =============================================================================
-int ZERO_HOMING_SPEED_US = 2500;  // Speed during 0.0 deg ZERO search (default: 2500 us)
-int TRACKING_SPEED_US = 8000;     // Speed during Sun Tracking motion (default: 2000 us)
+int ZERO_HOMING_SPEED_US = 1500;  // Speed during 0.0 deg ZERO search (1500 us = Fast, smooth)
+int TRACKING_SPEED_US = 1500;     // Fast & responsive tracking speed (1500 us = 5.3x faster than 8000 us)
 
 // ---------------- GPIO PIN DEFINITIONS (STM32 BLUE PILL) ----------------
 #define PIN_STEP PB8         // A4988 STEP pulse
@@ -426,8 +426,8 @@ void loop() {
     digitalWrite(PIN_ENABLE, HIGH);
   }
 
-  // 5. Sun Tracking (every 1000ms in AUTO mode to eliminate nervous rapid tracking)
-  if (now - lastTrackTime >= 1000) {
+  // 5. Sun Tracking (Fast & responsive: checks every 200ms when sun moves)
+  if (now - lastTrackTime >= 200) {
     lastTrackTime = now;
     if (isAutoTracking) {
       executeSunTracking();
@@ -927,16 +927,20 @@ void executeSunTracking() {
       lastTrackingStatus = "SUN BALANCED (Optimum Yield)";
       motorOff();
     } else if (activeDiff > deadbandThreshold) {
-      float nextAngle = currentAngle + 1.0f;
-      if (nextAngle <= MAX_ANGLE) {
+      float stepDeg = (activeDiff > 60) ? 2.0f : 1.0f;
+      float nextAngle = currentAngle + stepDeg;
+      if (nextAngle > MAX_ANGLE) nextAngle = MAX_ANGLE;
+      if (nextAngle != currentAngle) {
         lastTrackingStatus = "TRACKING SUN (+)";
         moveToAngle(nextAngle, TRACKING_SPEED_US);
       } else {
         lastTrackingStatus = "LIMIT REACHED (+35 deg MAX)";
       }
     } else {
-      float nextAngle = currentAngle - 1.0f;
-      if (nextAngle >= MIN_ANGLE) {
+      float stepDeg = (activeDiff < -60) ? 2.0f : 1.0f;
+      float nextAngle = currentAngle - stepDeg;
+      if (nextAngle < MIN_ANGLE) nextAngle = MIN_ANGLE;
+      if (nextAngle != currentAngle) {
         lastTrackingStatus = "TRACKING SUN (-)";
         moveToAngle(nextAngle, TRACKING_SPEED_US);
       } else {
