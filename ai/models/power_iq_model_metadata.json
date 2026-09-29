@@ -1,0 +1,41 @@
+{
+  "project": "POWER IQ Multi-Shaft Solar Tracking",
+  "health_classifier_accuracy_pct": 100.0,
+  "tracking_classifier_accuracy_pct": 100.0,
+  "classes": [
+    "BATTERY_UNDERVOLTAGE",
+    "MECHANICAL_JAM",
+    "NIGHT_HOLD",
+    "NOMINAL",
+    "SOILED_PANEL",
+    "THERMAL_OVERHEAT"
+  ],
+  "diagnostic_features": [
+    "solar_voltage_v",
+    "solar_current_a",
+    "solar_power_w",
+    "battery_voltage_v",
+    "ldr_diff",
+    "ldr_avg_brightness",
+    "temperature_c",
+    "humidity_pct",
+    "motor_status",
+    "motor_current_a",
+    "worm_backlash_deg"
+  ],
+  "tracking_features": [
+    "ldr_diff",
+    "ldr_avg_brightness",
+    "shaft_angle_deg"
+  ],
+  "nominal_solar_peak_w": 16.33,
+  "nominal_motor_stepping_a": 1.58,
+  "nominal_motor_idle_a": 0.22,
+  "mechanical_jam_current_threshold_a": 2.05,
+  "thermal_safe_max_c": 48.0,
+  "battery_undervoltage_v": 10.5,
+  "angle_limits_deg": [
+    -35.0,
+    35.0
+  ]
+}

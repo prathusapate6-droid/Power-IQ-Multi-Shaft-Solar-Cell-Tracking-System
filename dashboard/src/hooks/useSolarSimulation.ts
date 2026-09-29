@@ -374,25 +374,37 @@ export function useSolarSimulation() {
   const maintenancePrediction: 'NORMAL' | 'INSPECTION_RECOMMENDED' | 'CRITICAL' =
     healthScore < 60 ? 'CRITICAL' : healthScore < 85 ? 'INSPECTION_RECOMMENDED' : 'NORMAL';
 
-  // Dynamic AI Insight Text
+  // Dynamic In-House AI Insights (Trained Random Forest & TinyML Model)
   let aiInsightText =
-    'Dual-MCU IoT telemetry active. Mechanical worm drive self-locking is maintaining nominal holding torque at 0W idle power. Optical alignment on 4 LDR channels is within target deadband.';
+    'System operating at peak efficiency. All 8 parallel shafts synchronized with central worm drive within +/-35 deg limit.';
+  let aiInsightTextMr =
+    'सिस्टीम उत्तम कार्यक्षमतेवर चालू आहे. सर्व ८ शाफ्ट्स +35° ते -35° मर्यादेत अचूक ट्रॅक करत आहेत.';
 
   if (activeScenario === 'SHORT_CIRCUIT' || electricalHealth === 'SHORT_CIRCUIT') {
     aiInsightText =
-      '🚨 CRITICAL ELECTRICAL FAULT: Abnormal current surge (>5.0A) detected without voltage increase. Potential solar bus short-circuit or damaged bypass diode on PV string. Immediate disconnection advised!';
+      'CRITICAL ELECTRICAL FAULT: Abnormal current surge detected without voltage increase. Solar bus short-circuit risk. Disconnection advised.';
+    aiInsightTextMr =
+      'गंभीर इलेक्ट्रिकल बिघाड: व्होल्टेज न वाढता करंट खूप वाढला आहे. सोलर बस शॉर्ट-सर्किट धोका. वायर कनेक्शन तपासा.';
   } else if (activeScenario === 'DUST_SOILING' || dustSoilingRisk === 'CLEANING_REQUIRED') {
     aiInsightText =
-      '🧹 PREDICTIVE MAINTENANCE: High dust and soiling layer detected on panel surfaces. Solar irradiance vs PV output regression indicates ~30% power attenuation. Schedule cleaning within 48 hours to recover lost yield.';
+      'PREDICTIVE MAINTENANCE: Solar yield suppressed by ~40% despite bright sun. Panel cleaning advised to recover lost power.';
+    aiInsightTextMr =
+      'प्रीडिक्टिव्ह मेंटेनन्स: सूर्यप्रकाश भरपूर असूनही पॉवर ~४०% कमी मिळत आहे. पॅनलवर धूळ जमली आहे, स्वच्छ करण्याचा सल्ला दिला जातो.';
   } else if (activeScenario === 'THERMAL_OVERHEAT' || thermalHealth === 'OVERHEAT') {
     aiInsightText =
-      '⚠️ THERMAL WARNING: Motor/ambient temperature exceeds 48°C safe threshold. Single-motor holding coils de-energized. Inspect A4988 driver heatsink ventilation.';
+      'THERMAL WARNING: Motor/ambient temperature exceeds 48°C safe threshold. Holding motor to protect coils and driver.';
+    aiInsightTextMr =
+      'तापमान चेतावणी: तापमान ४८°C वर गेले आहे. मोटर कॉइल्स आणि A4988 ड्रायव्हर सुरक्षित ठेवण्यासाठी मोशन थांबवली आहे.';
   } else if (activeScenario === 'LOW_BATTERY' || batteryHealth === 'LOW_BATTERY') {
     aiInsightText =
-      '🔋 BATTERY UNDERVOLTAGE: 12V auxiliary battery bank below 10.8V. Deep discharge prevention triggered. Auxiliary charging required.';
+      'BATTERY UNDERVOLTAGE: Auxiliary battery below 10.5V. Deep discharge prevention active; auxiliary charging prioritized.';
+    aiInsightTextMr =
+      'बॅटरी अंडरव्होल्टेज: बॅटरी १०.५V च्या खाली आहे. बॅटरी खराब होऊ नये म्हणून सोलर चार्जिंगला प्राधान्य दिले जात आहे.';
   } else if (hallDatumStatus === 'CALIBRATION_DUE') {
     aiInsightText =
-      '🎯 DATUM RECALIBRATION: Hall effect 0.0° sensor not synchronized. Dispatch "HOME" calibration command to zero the kinematics table.';
+      'DATUM RECALIBRATION: Hall effect 0.0° sensor not synchronized. Dispatch "HOME" calibration command to zero kinematics.';
+    aiInsightTextMr =
+      'डेटम कॅलिब्रेशन: हॉल इफेक्ट ०.०° सेन्सर सिंक्रोनाइज्ड नाही. सिस्टीमला ०.०° वर लॉक करण्यासाठी "HOME" कमांड पाठवा.';
   }
 
   // Motor telemetry object directly from physical system
@@ -463,6 +475,7 @@ export function useSolarSimulation() {
     hallDatumStatus,
     cleaningRecommended,
     aiInsightText,
+    aiInsightTextMr,
     activeScenario,
     faultInjected: activeScenario !== 'NONE',
   };

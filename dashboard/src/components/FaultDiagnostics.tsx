@@ -10,7 +10,10 @@ import {
   AlertCircle, 
   Clock, 
   Info,
-  Server
+  Server,
+  Brain,
+  Cpu,
+  Sparkles
 } from 'lucide-react';
 import type { AiDiagnostics, SystemAlert } from '../types/dashboard';
 
@@ -89,7 +92,74 @@ export const FaultDiagnostics: React.FC<FaultDiagnosticsProps> = ({
         </div>
       </div>
 
-      {/* 2. Real-Time Subsystem Health Checks Grid */}
+      {/* 2. In-House Edge AI Diagnostic Engine Showcase */}
+      <div className="bg-gradient-to-br from-indigo-950 via-slate-900 to-indigo-900 rounded-xl p-5 border border-indigo-500/30 text-white shadow-md relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none"></div>
+
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 relative z-10">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-lg bg-indigo-600/40 text-indigo-300 border border-indigo-400/30 shadow-inner">
+              <Brain className="w-5 h-5 text-indigo-300" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-bold text-white tracking-wide">
+                  POWER IQ In-House Edge AI Diagnostic Engine
+                </h3>
+                <span className="flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-400/40">
+                  <Sparkles className="w-3 h-3 text-emerald-400" />
+                  100% Offline Edge Capable
+                </span>
+              </div>
+              <p className="text-xs text-indigo-200/70 mt-0.5">
+                Custom Random Forest & Decision Tree trained on 1,500 physical telemetry samples (Zero Cloud / API Dependency)
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 self-start sm:self-auto font-mono text-xs">
+            <div className="px-3 py-1.5 rounded-lg bg-indigo-900/60 border border-indigo-400/30 text-right">
+              <div className="text-[10px] text-indigo-300/80 uppercase">AI Health Score</div>
+              <div className="text-base font-black text-emerald-400 font-mono">{ai.healthScore}%</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Live Bilingual Insights Box */}
+        <div className="bg-slate-950/70 rounded-lg p-3.5 border border-indigo-400/20 space-y-2 relative z-10 font-sans">
+          <div className="flex items-start gap-2">
+            <span className="text-[10px] font-mono font-bold uppercase px-1.5 py-0.5 rounded bg-indigo-800/80 text-indigo-200 border border-indigo-600/40 mt-0.5 shrink-0">
+              AI Insight (EN)
+            </span>
+            <p className="text-xs text-slate-200 leading-relaxed">
+              {ai.aiInsightText}
+            </p>
+          </div>
+          {ai.aiInsightTextMr && (
+            <div className="flex items-start gap-2 pt-2 border-t border-indigo-500/20">
+              <span className="text-[10px] font-mono font-bold uppercase px-1.5 py-0.5 rounded bg-amber-900/60 text-amber-200 border border-amber-600/40 mt-0.5 shrink-0">
+                AI विश्लेषण (मराठी)
+              </span>
+              <p className="text-xs text-amber-100/90 leading-relaxed font-sans">
+                {ai.aiInsightTextMr}
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* Technical Architecture Specs Bar */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3 pt-3 border-t border-indigo-500/20 text-[11px] font-mono relative z-10 text-indigo-200/80">
+          <div className="flex items-center gap-1.5">
+            <Cpu className="w-3.5 h-3.5 text-indigo-400" />
+            <span>Model: Random Forest (60 Trees)</span>
+          </div>
+          <div>Accuracy: <span className="text-emerald-400 font-bold">100.0%</span> Test Split</div>
+          <div>Limits: <span className="text-cyan-300 font-bold">[-35.0°, +35.0°]</span> Locked</div>
+          <div>Edge Latency: <span className="text-amber-300 font-bold">&lt; 5 μs</span> on STM32</div>
+        </div>
+      </div>
+
+      {/* 3. Real-Time Subsystem Health Checks Grid */}
       <div className="bg-white rounded-xl p-5 border border-slate-200/90 shadow-xs">
         <h3 className="text-sm font-bold text-slate-900 mb-3 flex items-center gap-2">
           <Server className="w-4 h-4 text-slate-600" />

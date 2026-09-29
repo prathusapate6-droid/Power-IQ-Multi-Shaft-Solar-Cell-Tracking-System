@@ -21,10 +21,17 @@ import sys
 import os
 import time
 import json
+import math
 import argparse
 from typing import Optional
 
-# Import AI Predictive Engine from ai/prototype_analysis
+# Import In-House AI Inference Engine & Predictive Simulation
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "ai")))
+try:
+    from power_iq_ai_inference import PowerIqCustomAi
+except ImportError:
+    PowerIqCustomAi = None
+
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "ai", "prototype_analysis")))
 try:
     from predictive_maintenance_simulation import MultiShaftPredictiveEngine
@@ -56,6 +63,7 @@ class TelemetryBridge:
         self.mock = mock
         self.serial_conn = None
         self.ai_engine = MultiShaftPredictiveEngine() if MultiShaftPredictiveEngine else None
+        self.custom_ai = PowerIqCustomAi() if PowerIqCustomAi else None
 
     def connect(self) -> bool:
         if self.mock:
@@ -87,17 +95,30 @@ class TelemetryBridge:
         """Polls Arduino for status or generates simulated telemetry."""
         if self.mock or not self.serial_conn:
             sim_time = time.time()
-            angle = round(45.0 * (0.5 + 0.5 * (sim_time % 60) / 60.0), 1)
+            # Realistic travel between -35.0 and +35.0 deg
+            angle = round(35.0 * math.sin((sim_time % 60) * (2 * math.pi / 60)), 1)
             frame = {
                 "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                 "angle": angle,
-                "target": 45.0,
+                "target": angle,
                 "moving": False,
-                "steps_per_deg": 16.67,
-                "driver": "L298N (Simulated)",
-                "motor": {"status": "IDLE", "current_a": 0.05, "temperature_c": 32.4, "voltage_v": 12.0},
-                "shafts": [{"id": i, "angle_deg": angle, "backlash_deg": 0.02} for i in range(1, 11)],
-                "solar": {"voltage_v": 18.2, "current_a": 2.4, "power_kw": 0.043},
+                "steps_per_deg": 10.556,
+                "driver": "A4988 / STM32F103",
+                "motor": {"status": "IDLE", "current_a": 0.22, "temperature_c": 36.8, "voltage_v": 24.0},
+                "shafts": [{"id": i, "angle_deg": angle, "backlash_deg": 0.025} for i in range(1, 9)],
+                "solar": {"voltage_v": 10.62, "current_a": 1.54, "power_w": 16.33, "power_kw": 0.0163},
+                "solar_voltage_v": 10.62,
+                "solar_current_a": 1.54,
+                "solar_power_w": 16.33,
+                "battery_voltage_v": 12.25,
+                "ldr_diff": -2,
+                "ldr_top_val": 4022,
+                "ldr_bot_val": 4024,
+                "temperature_c": 37.2,
+                "humidity_pct": 49.0,
+                "shaft_angle_deg": angle,
+                "motor_status": 0,
+                "motor_current_a": 0.22
             }
             return frame
 
@@ -135,20 +156,23 @@ class TelemetryBridge:
             try:
                 frame = self.query_telemetry()
 
-                # Run AI predictive analysis if applicable
-                ai_result = None
-                if self.ai_engine and "shafts" in frame and "motor" in frame:
-                    ai_result = self.ai_engine.evaluate_telemetry_frame(frame)
+                # Run In-House Trained AI Diagnostic Model
+                custom_diag = None
+                if self.custom_ai:
+                    custom_diag = self.custom_ai.diagnose(frame)
 
                 # Format terminal display
                 angle = frame.get("angle", "N/A")
                 moving = frame.get("moving", False)
-                health = ai_result.get("health_score", 100) if ai_result else 100
-                status = ai_result.get("system_status", "HEALTHY") if ai_result else "NOMINAL"
+                health = custom_diag["health_score"] if custom_diag else 100
+                status = custom_diag["system_status"] if custom_diag else "NOMINAL"
+                conf = custom_diag.get("confidence_pct", 99.0) if custom_diag else 100.0
+                action = custom_diag.get("recommended_action", "HOLD") if custom_diag else "HOLD"
 
-                print(f"[{time.strftime('%H:%M:%S')}] Slat Angle: {angle}° | Motion: {'MOVING' if moving else 'LOCKED'} | Health: {health}% [{status}]")
-                if ai_result and ai_result.get("issues_detected"):
-                    print(f"    ⚠️ Diagnostics: {ai_result['issues_detected']}")
+                print(f"[{time.strftime('%H:%M:%S')}] Slat: {angle}° | Motion: {'MOVING' if moving else 'LOCKED'} | Health: {health}% [{status} ({conf}%)] | Action: {action}")
+                if custom_diag:
+                    print(f"    🤖 AI Insight (EN): {custom_diag['ai_insight_en']}")
+                    print(f"    🇮🇳 AI Insight (MR): {custom_diag['ai_insight_mr']}")
 
                 time.sleep(interval_sec)
             except KeyboardInterrupt:

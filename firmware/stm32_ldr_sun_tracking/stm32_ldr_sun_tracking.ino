@@ -45,7 +45,7 @@
 // 1. USER SPEED & TIMING VARIABLES
 // =============================================================================
 int ZERO_HOMING_SPEED_US = 2500;  // Speed during 0.0 deg ZERO search (default: 2500 us)
-int TRACKING_SPEED_US = 3500;     // Speed during Sun Tracking motion (default: 2000 us)
+int TRACKING_SPEED_US = 8000;     // Speed during Sun Tracking motion (default: 2000 us)
 
 // ---------------- GPIO PIN DEFINITIONS (STM32 BLUE PILL) ----------------
 #define PIN_STEP PB8         // A4988 STEP pulse
