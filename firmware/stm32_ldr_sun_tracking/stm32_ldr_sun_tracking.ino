@@ -62,8 +62,10 @@ int TRACKING_SPEED_US = 3500;     // Speed during Sun Tracking motion (default: 
 #define PIN_DHT11 PB5       // DHT11 Data Pin
 
 #define PIN_POT_MANUAL   PB0   // 10k Potentiometer (ADC1_IN8)
-#define PIN_BTN_MODE     PB12  // Mode Toggle Button Primary (Active LOW/HIGH)
-#define PIN_BTN_MODE_ALT PB13  // Mode Toggle Button Alternate (Active LOW/HIGH)
+#define PIN_SW_MODE      PB12  // 2-Position ON/OFF Switch Primary (Active LOW to GND)
+#define PIN_SW_MODE_ALT  PB13  // 2-Position ON/OFF Switch Alternate (Active LOW to GND)
+#define PIN_BTN_MODE     PIN_SW_MODE
+#define PIN_BTN_MODE_ALT PIN_SW_MODE_ALT
 
 // ---------------- POWER MONITORING PINS (SOLAR & BATTERY) ----------------
 #define PIN_SOLAR_VOLT PA6  // Solar Voltage Analog Input
@@ -107,9 +109,11 @@ unsigned long lastHeartbeatTime = 0;
 bool heartbeatState = false;
 unsigned long lastTelemetryTime = 0;
 
-// Manual Button Debounce & Potentiometer Tracking
-bool lastBtnState = HIGH;
-unsigned long lastBtnDebounceMs = 0;
+// ---------------- HARDWARE ON/OFF MODE SWITCH & POTENTIOMETER ----------------
+bool switchInvert = false;         // false: Switch ON (LOW to GND) = AUTO, OFF (HIGH) = MANUAL
+int lastStableSwitchState = -1;    // -1 = uninitialized, 1 = ON (Closed to GND), 0 = OFF (Open)
+int lastRawSwitchState = -1;
+unsigned long lastSwitchDebounceMs = 0;
 float lastPotTargetAngle = 0.0f;
 float currentPotAngle = 0.0f;
 
@@ -343,8 +347,8 @@ void setup() {
   pinMode(PIN_HALL_HOME, INPUT);
 
   pinMode(PIN_POT_MANUAL, INPUT);
-  pinMode(PIN_BTN_MODE, INPUT_PULLUP);
-  pinMode(PIN_BTN_MODE_ALT, INPUT_PULLUP);
+  pinMode(PIN_SW_MODE, INPUT_PULLUP);      // PB12 ON/OFF switch (Active LOW to GND)
+  pinMode(PIN_SW_MODE_ALT, INPUT_PULLUP);  // PB13 ON/OFF switch (Active LOW to GND)
 
   pinMode(PIN_SOLAR_VOLT, INPUT);
   pinMode(PIN_SOLAR_CURR, INPUT);
@@ -426,47 +430,74 @@ void loop() {
 }
 
 // =============================================================================
-// MANUAL CONTROLS: HARDWARE BUTTON (PB12) & 10K POTENTIOMETER (PB0)
+// MANUAL CONTROLS: HARDWARE ON/OFF SWITCH (PB12/PB13) & 10K POTENTIOMETER (PB0)
 // =============================================================================
-
-
 void handleManualControls() {
-  // 1. Dual-Pin (PB12 & PB13) Auto-Sensing Mode Toggle Button
-  // Automatically detects idle level (Active LOW to GND, or Active HIGH to 3.3V)
-  static bool idle12 = HIGH;
-  static bool idle13 = HIGH;
-  static bool baselineSet = false;
-  if (!baselineSet && millis() > 300) {
-    idle12 = digitalRead(PIN_BTN_MODE);
-    idle13 = digitalRead(PIN_BTN_MODE_ALT);
-    baselineSet = true;
+  // 1. Hardware 2-Position ON/OFF Switch (PB12 or PB13 to GND)
+  // WIRING GUIDE:
+  // - Terminal 1 -> STM32 Pin PB12 (or PB13)
+  // - Terminal 2 -> GND (Negative side)
+  // When switch is ON (closed to GND) -> Pin reads LOW (0V) -> AUTO MODE (Sun Tracking)
+  // When switch is OFF (open circuit) -> Pin reads HIGH (3.3V) -> MANUAL MODE (Potentiometer)
+  int raw12 = digitalRead(PIN_SW_MODE);
+  int raw13 = digitalRead(PIN_SW_MODE_ALT);
+
+  // Switch is ON (closed to GND) if either PB12 or PB13 is pulled LOW
+  int currentRaw = (raw12 == LOW || raw13 == LOW) ? 1 : 0;
+
+  // Initial read at boot
+  if (lastStableSwitchState == -1) {
+    lastStableSwitchState = currentRaw;
+    lastRawSwitchState = currentRaw;
+    bool targetAuto = (currentRaw == 1);
+    if (switchInvert) targetAuto = !targetAuto;
+    isAutoTracking = targetAuto;
+    lastTrackingStatus = isAutoTracking ? "AUTO (LDR Sun Tracking)" : "MANUAL MODE";
+
+    printAll(F(">>> [MODE SWITCH AT BOOT] Switch is "));
+    printAll(currentRaw == 1 ? F("ON (PIN LOW / GND) -> AUTO MODE") : F("OFF (PIN HIGH / OPEN) -> MANUAL MODE"));
+    printlnAll();
+    Serial1.flush();
   }
 
-  bool pressed12 = baselineSet && (digitalRead(PIN_BTN_MODE) != idle12);
-  bool pressed13 = baselineSet && (digitalRead(PIN_BTN_MODE_ALT) != idle13);
-  bool isPressed = pressed12 || pressed13;
-
-  static bool lastRawPressed = false;
-  static bool lastStablePressed = false;
-  static unsigned long lastDebounceMs = 0;
-
-  if (isPressed != lastRawPressed) {
-    lastDebounceMs = millis();
-    lastRawPressed = isPressed;
+  // 50ms Debounce for Rocker/Toggle Switch
+  if (currentRaw != lastRawSwitchState) {
+    lastSwitchDebounceMs = millis();
+    lastRawSwitchState = currentRaw;
   }
 
-  if ((millis() - lastDebounceMs) > 40) {
-    if (isPressed != lastStablePressed) {
-      lastStablePressed = isPressed;
-      if (lastStablePressed) {
-        isAutoTracking = !isAutoTracking;
+  if ((millis() - lastSwitchDebounceMs) > 50) {
+    if (currentRaw != lastStableSwitchState) {
+      lastStableSwitchState = currentRaw;
+      bool targetAuto = (lastStableSwitchState == 1);
+      if (switchInvert) targetAuto = !targetAuto;
+
+      if (targetAuto != isAutoTracking) {
+        isAutoTracking = targetAuto;
         printlnAll();
-        printAll(F(">>> [MODE SWITCH] Mode toggled by hardware button ("));
-        printAll(pressed12 ? F("PB12") : F("PB13"));
-        printAll(F(") to: "));
-        printlnAll(isAutoTracking ? F("AUTO (LDR Sun Tracking)") : F("MANUAL (Command / Pot)"));
+        printAll(F(">>> [MODE SWITCH FLIPPED] Switch is now: "));
+        if (lastStableSwitchState == 1) {
+          printAll(F("ON (PIN LOW / GND) -> "));
+        } else {
+          printAll(F("OFF (PIN HIGH / OPEN) -> "));
+        }
+        printlnAll(isAutoTracking ? F("AUTO MODE (LDR Sun Tracking)") : F("MANUAL MODE (Potentiometer Control)"));
         printlnAll();
         Serial1.flush();
+
+        if (!isAutoTracking) {
+          // Immediately move to potentiometer angle when switched to MANUAL!
+          if (currentPotAngle == 0.0f) {
+            lastTrackingStatus = "MANUAL: 0.0 deg ZERO (START)";
+          } else if (currentPotAngle > 0.0f) {
+            lastTrackingStatus = "MANUAL: RIGHT (+ POSITIVE)";
+          } else {
+            lastTrackingStatus = "MANUAL: LEFT (- NEGATIVE)";
+          }
+          moveToAngle(currentPotAngle, TRACKING_SPEED_US);
+        } else {
+          lastTrackingStatus = "AUTO (LDR Sun Tracking)";
+        }
       }
     }
   }
@@ -482,52 +513,52 @@ void handleManualControls() {
 
   // Calculate target angle from potentiometer (0 -> -40 deg, 2048 -> 0 deg, 4095 -> +40 deg)
   float rawAngle = ((rawPot / 4095.0f) * 80.0f) - 40.0f;
-  // Center deadband: snap to exact 0.0 deg ZERO datum
+  // Center deadband: snap cleanly to exact 0.0 deg ZERO datum
   if (fabs(rawAngle) <= 1.2f) {
     currentPotAngle = 0.0f;
   } else {
     currentPotAngle = rawAngle;
   }
 
-  // When potentiometer is actively turned (> 40 ADC counts change):
-  if (abs(rawPot - lastPotVal) > 40) {
-    lastPotVal = rawPot;
+  // When in MANUAL mode, potentiometer knob directly controls solar slat angle:
+  if (!isAutoTracking) {
+    if (abs(rawPot - lastPotVal) > 40) {
+      lastPotVal = rawPot;
 
-    // Switch to MANUAL mode upon intentional physical knob rotation
-    if (isAutoTracking) {
-      isAutoTracking = false;
-      printlnAll();
-      printlnAll(F(">>> [POT OVERRIDE] Manual potentiometer turned! Switched to MANUAL Mode."));
+      // Determine status description based on position
+      if (currentPotAngle == 0.0f) {
+        lastTrackingStatus = "MANUAL: 0.0 deg ZERO (START)";
+      } else if (currentPotAngle > 0.0f) {
+        lastTrackingStatus = "MANUAL: RIGHT (+ POSITIVE)";
+      } else {
+        lastTrackingStatus = "MANUAL: LEFT (- NEGATIVE)";
+      }
+
+      // Move solar cells slats to match potentiometer angle
+      moveToAngle(currentPotAngle, TRACKING_SPEED_US);
+
+      // Print live angle telemetry
+      printAll(F(">>> [POT ROTATION] Pot: "));
+      if (currentPotAngle >= 0) printAll(F("+"));
+      printAll(currentPotAngle, 1);
+      if (currentPotAngle == 0.0f) {
+        printAll(F(" deg [CENTER ZERO DATUM]"));
+      } else if (currentPotAngle > 0.0f) {
+        printAll(F(" deg [RIGHT / POSITIVE (+)]"));
+      } else {
+        printAll(F(" deg [LEFT / NEGATIVE (-)]"));
+      }
+      printAll(F(" | Solar Slat: "));
+      if (currentAngle >= 0) printAll(F("+"));
+      printAll(currentAngle, 1);
+      printlnAll(F(" deg"));
+      Serial1.flush();
     }
-
-    // Determine status description based on position
-    if (currentPotAngle == 0.0f) {
-      lastTrackingStatus = "MANUAL: 0.0 deg ZERO (START)";
-    } else if (currentPotAngle > 0.0f) {
-      lastTrackingStatus = "MANUAL: RIGHT (+ POSITIVE)";
-    } else {
-      lastTrackingStatus = "MANUAL: LEFT (- NEGATIVE)";
+  } else {
+    // In AUTO mode, track potentiometer knob position changes quietly
+    if (abs(rawPot - lastPotVal) > 40) {
+      lastPotVal = rawPot;
     }
-
-    // Move solar cells slats to match potentiometer angle
-    moveToAngle(currentPotAngle, TRACKING_SPEED_US);
-
-    // Print live angle telemetry
-    printAll(F(">>> [POT ROTATION] Pot: "));
-    if (currentPotAngle >= 0) printAll(F("+"));
-    printAll(currentPotAngle, 1);
-    if (currentPotAngle == 0.0f) {
-      printAll(F(" deg [CENTER ZERO DATUM]"));
-    } else if (currentPotAngle > 0.0f) {
-      printAll(F(" deg [RIGHT / POSITIVE (+)]"));
-    } else {
-      printAll(F(" deg [LEFT / NEGATIVE (-)]"));
-    }
-    printAll(F(" | Solar Slat: "));
-    if (currentAngle >= 0) printAll(F("+"));
-    printAll(currentAngle, 1);
-    printlnAll(F(" deg"));
-    Serial1.flush();
   }
 }
 
@@ -955,16 +986,33 @@ void handleCommand(char* cmd) {
       printlnAll(digitalRead(PIN_DHT11) == HIGH ? F("IDLE HIGH (Pull-up OK)") : F("STUCK LOW (Short/GND)"));
       printlnAll(F("[DHT11] Troubleshooting: Verify VCC (3.3V/5V), GND, and PB5 signal wire.\n"));
     }
-  } else if (strcasecmp(cmd, "BTN") == 0 || strcasecmp(cmd, "BUTTON") == 0) {
-    printlnAll(F("\n--- HARDWARE BUTTON DIAGNOSTIC ---"));
-    printAll(F(" PB12 (Primary)   : "));
-    printlnAll(digitalRead(PIN_BTN_MODE) == HIGH ? F("HIGH (1)") : F("LOW (0)"));
-    printAll(F(" PB13 (Alternate) : "));
-    printlnAll(digitalRead(PIN_BTN_MODE_ALT) == HIGH ? F("HIGH (1)") : F("LOW (0)"));
-    printAll(F(" Current Mode     : "));
-    printlnAll(isAutoTracking ? F("AUTO (LDR)") : F("MANUAL (Command/Pot)"));
-    printlnAll(F(" Wiring Guide     : Connect button between PB12 (or PB13) and GND."));
-    printlnAll(F("                    Pressing button will toggle AUTO <-> MANUAL.\n"));
+  } else if (strcasecmp(cmd, "SW") == 0 || strcasecmp(cmd, "SWITCH") == 0 || strcasecmp(cmd, "BTN") == 0 || strcasecmp(cmd, "BUTTON") == 0) {
+    printlnAll(F("\n--- HARDWARE ON/OFF MODE SWITCH DIAGNOSTIC ---"));
+    int r12 = digitalRead(PIN_SW_MODE);
+    int r13 = digitalRead(PIN_SW_MODE_ALT);
+    printAll(F(" PB12 Pin State     : "));
+    printlnAll(r12 == LOW ? F("LOW (0V - Closed to GND)") : F("HIGH (3.3V - Open)"));
+    printAll(F(" PB13 Pin State     : "));
+    printlnAll(r13 == LOW ? F("LOW (0V - Closed to GND)") : F("HIGH (3.3V - Open)"));
+    printAll(F(" Detected Switch    : "));
+    printlnAll((r12 == LOW || r13 == LOW) ? F("ON (CLOSED TO GND)") : F("OFF (OPEN)"));
+    printAll(F(" Active Mode        : "));
+    printlnAll(isAutoTracking ? F("AUTO (LDR Sun Tracking)") : F("MANUAL (Potentiometer Control)"));
+    printAll(F(" Switch Logic       : "));
+    printlnAll(switchInvert ? F("INVERTED (ON=MANUAL, OFF=AUTO)") : F("NORMAL (ON=AUTO, OFF=MANUAL)"));
+    printlnAll(F(" Wiring Guide       : Connect 2-pin ON/OFF Switch between PB12 (or PB13) and GND."));
+    printlnAll(F("                      Switch ON (closed) = AUTO mode | Switch OFF (open) = MANUAL mode."));
+    printlnAll(F(" Commands           : 'INVERT_SW' to flip ON/OFF mapping | 'AUTO' / 'MANUAL' for remote override.\n"));
+  } else if (strcasecmp(cmd, "INVERT_SW") == 0 || strcasecmp(cmd, "SW_INVERT") == 0) {
+    switchInvert = !switchInvert;
+    bool targetAuto = (lastStableSwitchState == 1);
+    if (switchInvert) targetAuto = !targetAuto;
+    isAutoTracking = targetAuto;
+    printAll(F("\n[CMD] Switch logic inverted! Mapping is now: "));
+    printlnAll(switchInvert ? F("ON=MANUAL, OFF=AUTO") : F("ON=AUTO, OFF=MANUAL"));
+    printAll(F("[CMD] Current Active Mode is now: "));
+    printlnAll(isAutoTracking ? F("AUTO (LDR Sun Tracking)") : F("MANUAL (Potentiometer Control)"));
+    printlnAll();
   } else if (strcasecmp(cmd, "MODE") == 0 || strcasecmp(cmd, "TOGGLE") == 0) {
     isAutoTracking = !isAutoTracking;
     printAll(F("\n[CMD] Mode toggled via command to: "));
@@ -978,6 +1026,15 @@ void handleCommand(char* cmd) {
     printlnAll(isHomed ? F("YES (0.0 deg)") : F("NO"));
     printAll(F(" Mode           : "));
     printlnAll(isAutoTracking ? F("AUTO (LDR)") : F("MANUAL (POT)"));
+    printAll(F(" Mode Switch    : "));
+    int r12 = digitalRead(PIN_SW_MODE);
+    int r13 = digitalRead(PIN_SW_MODE_ALT);
+    if (r12 == LOW || r13 == LOW) {
+      printAll(F("ON (PIN LOW / GND) -> "));
+    } else {
+      printAll(F("OFF (PIN HIGH / OPEN) -> "));
+    }
+    printlnAll(isAutoTracking ? F("AUTO") : F("MANUAL"));
     printAll(F(" Potentiometer  : "));
     if (currentPotAngle >= 0) printAll(F("+"));
     printAll(currentPotAngle, 1);
@@ -1097,7 +1154,8 @@ void printHelp() {
   printlnAll(F(" AUTO             : Enable continuous automatic sun tracking"));
   printlnAll(F(" MANUAL           : Pause auto tracking (Potentiometer active)"));
   printlnAll(F(" MODE / TOGGLE    : Toggle between AUTO and MANUAL mode    "));
-  printlnAll(F(" BTN / BUTTON     : Test PB12 & PB13 hardware button pins  "));
+  printlnAll(F(" SW / SWITCH      : Test PB12 & PB13 ON/OFF mode switch    "));
+  printlnAll(F(" INVERT_SW        : Flip ON/OFF switch logic (ON<->OFF)    "));
   printlnAll(F(" GOTO <deg>       : Move slats to specific angle (-40 to +40)"));
   printlnAll(F(" ZERO             : Calibrate current position as 0.0 deg  "));
   printlnAll(F(" HOME             : Re-run Hall-effect ZERO calibration    "));
