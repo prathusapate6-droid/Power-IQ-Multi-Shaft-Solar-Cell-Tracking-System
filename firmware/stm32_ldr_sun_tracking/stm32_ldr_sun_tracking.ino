@@ -75,8 +75,9 @@ int TRACKING_SPEED_US = 3500;     // Speed during Sun Tracking motion (default: 
 const float VOLT_DIVIDER_RATIO = (33000.0f + 6800.0f) / 6800.0f;  // 5.8529
 float refVoltage = 3.3f;                                          // STM32 ADC Reference Voltage
 
-float currentSensitivity = 0.100f;  // 100 mV/A (ACS712-20A)
+float currentSensitivity = 0.216f;  // Calibrated for 2.0A max solar panels (ACS712-05B: 185-216 mV/A)
 float currentZeroOffset = 2.50f;    // Auto-calibrated at boot (Nominal 2.5V for 5V ACS712)
+float lastCurrentDiffVolt = 0.0f;
 
 float solarVoltage = 0.0f;  // Volts
 float solarCurrent = 0.0f;  // Amps
@@ -646,13 +647,15 @@ void updatePowerSensors() {
   }
   float adcCurrS = ((sumSC / 16.0f) * refVoltage) / 4095.0f;
   float diffVolt = adcCurrS - currentZeroOffset;
+  lastCurrentDiffVolt = diffVolt;
 
-  // Deadband around zero: if difference is less than 30mV (~0.3A), force 0.00 A
+  // Deadband around zero: if difference is less than 30mV (~0.15A), force 0.00 A
   if (fabs(diffVolt) < 0.030f) {
     solarCurrent = 0.0f;
   } else {
     solarCurrent = diffVolt / currentSensitivity;
     if (solarCurrent < 0.10f) solarCurrent = 0.0f;  // Positive unidirectional solar flow
+    if (solarCurrent > 2.05f) solarCurrent = 2.00f; // Panel 2A physical saturation cap
   }
 
   // 3. Solar Power (Watts)
@@ -1056,6 +1059,16 @@ void handleCommand(char* cmd) {
     printAll(F("\n[CMD] Current Zero Baseline calibrated to: "));
     printAll(currentZeroOffset, 3);
     printlnAll(F(" V -> Current is now 0.00 A\n"));
+  } else if (strncasecmp(cmd, "CAL_AMP ", 8) == 0 || strncasecmp(cmd, "AMP ", 4) == 0) {
+    float targetAmp = parseCustomFloat(cmd + (*cmd == 'C' ? 8 : 4));
+    if (targetAmp > 0.05f && targetAmp <= 5.0f && fabs(lastCurrentDiffVolt) > 0.02f) {
+      currentSensitivity = fabs(lastCurrentDiffVolt) / targetAmp;
+      printAll(F("\n[CMD] Current calibrated to: "));
+      printAll(targetAmp, 2);
+      printAll(F(" A (Sens: "));
+      printAll(currentSensitivity, 3);
+      printlnAll(F(" V/A)\n"));
+    }
   } else if (strcasecmp(cmd, "DHT") == 0 || strcasecmp(cmd, "TEMP") == 0) {
     printlnAll(F("\n[DHT11] Testing sensor read on pin PB5..."));
     float t = 0.0f, h = 0.0f;
