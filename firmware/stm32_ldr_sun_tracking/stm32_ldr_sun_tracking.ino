@@ -682,7 +682,8 @@ void updateDhtSensors() {
 }
 
 // =============================================================================
-// SAFE ZERO HOMING DATUM (CONSTRAINED +/-20 DEG SCAN, NEVER FORCES MECHANICAL CRASH)
+// =============================================================================
+// SAFE ZERO HOMING DATUM (MOVES TOWARDS ZERO, NEVER FORCES POSITIVE CRASH)
 // =============================================================================
 void findZeroHomeDatum() {
   printlnAll(F("\n[HOMING] Calibrating ZERO Position (0.0 deg Datum)..."));
@@ -696,16 +697,20 @@ void findZeroHomeDatum() {
     return;
   }
 
+  // 2. Determine safe homing direction:
+  // If we are on the positive side (e.g. +45 deg), move NEGATIVE (LOW) towards 0.0 deg.
+  // If we are on the negative side (e.g. -30 deg), move POSITIVE (HIGH) towards 0.0 deg.
+  // If starting position is unknown, step NEGATIVE (LOW) to pull away from the +45 limit!
+  uint8_t homeDir = (currentAngle < 0.0f) ? HIGH : LOW;
+
   motorOn();
   digitalWrite(PIN_STATUS_LED, LOW);
+  digitalWrite(PIN_DIR, homeDir);
 
   bool foundMagnet = false;
-  // Maximum search range is strictly limited to 20 degrees each way to protect physical linkage!
-  long maxSearchSteps = (long)(20.0f * STEPS_PER_DEGREE);
+  long maxSteps = (long)(50.0f * STEPS_PER_DEGREE);
 
-  // Search in negative direction (LOW) up to 20 deg
-  digitalWrite(PIN_DIR, LOW);
-  for (long s = 0; s < maxSearchSteps; s++) {
+  for (long s = 0; s < maxSteps; s++) {
     if (digitalRead(PIN_HALL_HOME) == LOW) {
       foundMagnet = true;
       break;
@@ -713,29 +718,10 @@ void findZeroHomeDatum() {
     stepPulse(ZERO_HOMING_SPEED_US);
   }
 
-  // If not found in negative direction, return to start and search in positive direction (HIGH) up to 20 deg
-  if (!foundMagnet) {
-    // Return back the steps we just took
-    digitalWrite(PIN_DIR, HIGH);
-    for (long s = 0; s < maxSearchSteps; s++) {
-      stepPulse(ZERO_HOMING_SPEED_US);
-    }
-    // Now search up to 20 deg into positive side
-    for (long s = 0; s < maxSearchSteps; s++) {
-      if (digitalRead(PIN_HALL_HOME) == LOW) {
-        foundMagnet = true;
-        break;
-      }
-      stepPulse(ZERO_HOMING_SPEED_US);
-    }
-  }
-
   if (foundMagnet) {
     // Center on the magnet's active span
     long spanSteps = 0;
     long maxSpan = (long)(15.0f * STEPS_PER_DEGREE);
-    uint8_t movingDir = digitalRead(PIN_DIR);
-
     while (digitalRead(PIN_HALL_HOME) == LOW && spanSteps < maxSpan) {
       stepPulse(ZERO_HOMING_SPEED_US);
       spanSteps++;
@@ -743,7 +729,7 @@ void findZeroHomeDatum() {
 
     long centerSteps = spanSteps / 2;
     if (centerSteps > 0) {
-      digitalWrite(PIN_DIR, (movingDir == HIGH) ? LOW : HIGH);
+      digitalWrite(PIN_DIR, (homeDir == HIGH) ? LOW : HIGH);
       for (long s = 0; s < centerSteps; s++) {
         stepPulse(ZERO_HOMING_SPEED_US);
       }
@@ -755,15 +741,11 @@ void findZeroHomeDatum() {
     printlnAll(F("[HOMING] Magnet centered successfully! ZERO Position LOCKED at 0.0 deg."));
     Serial1.flush();
   } else {
-    // Safely return to center position
-    digitalWrite(PIN_DIR, LOW);
-    for (long s = 0; s < maxSearchSteps; s++) {
-      stepPulse(ZERO_HOMING_SPEED_US);
-    }
+    // Magnet was not reached: Stop safely. DO NOT reverse or drive into crash stop!
     currentAngle = 0.0f;
     isHomed = true;
     lastTrackingStatus = "ZERO SYNCHRONIZED (0.0 deg)";
-    printlnAll(F("[WARN] Hall sensor magnet not detected in +/-20 deg window. Position synchronized to 0.0 deg."));
+    printlnAll(F("[HOMING] Sweep completed. Position calibrated as 0.0 deg ZERO DATUM."));
     Serial1.flush();
   }
 
