@@ -48,6 +48,7 @@ export function generateDiurnalCurve(currentHourDecimal: number): HourlyGenerati
         sunElevation: 0,
         solarVoltage: 0.0,
         battVoltage: 12.4,
+        solarCurrent: 0.0,
         temperature: 24.5,
         humidity: 70,
       });
@@ -85,6 +86,7 @@ export function generateDiurnalCurve(currentHourDecimal: number): HourlyGenerati
       sunElevation: Number((sunSin * 72).toFixed(1)),
       solarVoltage,
       battVoltage,
+      solarCurrent: Number((trackingW / Math.max(1, solarVoltage)).toFixed(2)),
       temperature,
       humidity,
     });

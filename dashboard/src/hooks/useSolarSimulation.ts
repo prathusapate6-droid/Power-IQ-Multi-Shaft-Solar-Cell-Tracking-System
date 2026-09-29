@@ -125,6 +125,7 @@ export function useSolarSimulation() {
             sunElevation: Math.max(10, Math.round(90 - Math.abs(actualShaftAngle))),
             solarVoltage: solarVoltageV > 0 ? solarVoltageV : p.solarVoltage,
             battVoltage: battVoltageV > 0 ? battVoltageV : p.battVoltage,
+            solarCurrent: solarCurrentA > 0 ? solarCurrentA : p.solarCurrent,
             temperature: temperatureC > 0 ? temperatureC : p.temperature,
             humidity: (telemetry && telemetry.humidity) ? telemetry.humidity : p.humidity,
           };

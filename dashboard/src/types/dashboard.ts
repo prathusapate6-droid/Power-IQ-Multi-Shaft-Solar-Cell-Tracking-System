@@ -68,6 +68,7 @@ export interface HourlyGenerationPoint {
   sunElevation: number;
   solarVoltage?: number;
   battVoltage?: number;
+  solarCurrent?: number;
   temperature?: number;
   humidity?: number;
 }
