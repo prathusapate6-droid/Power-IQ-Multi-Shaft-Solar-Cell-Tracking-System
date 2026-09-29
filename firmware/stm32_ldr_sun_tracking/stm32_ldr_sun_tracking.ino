@@ -75,10 +75,14 @@ int TRACKING_SPEED_US = 3500;     // Speed during Sun Tracking motion (default: 
 const float VOLT_DIVIDER_RATIO = (33000.0f + 6800.0f) / 6800.0f;  // 5.8529
 float refVoltage = 3.3f;                                          // STM32 ADC Reference Voltage
 
-float currentSensitivity = 0.216f;  // Calibrated for 2.0A max solar panels (ACS712-05B: 185-216 mV/A)
+float currentSensitivity = 0.185f;  // Calibrated for ACS712-05B: 185 mV/A (adjustable via SENS command)
 float currentZeroOffset = 2.50f;    // Auto-calibrated at boot (Nominal 2.5V for 5V ACS712)
+float currentDeadbandVolt = 0.012f; // 12 mV (~0.06A) responsive deadband (allows small motor currents)
 float lastCurrentDiffVolt = 0.0f;
 float lastAdcCurrS = 2.50f;
+
+bool manualMotorHold = false;
+unsigned long motorHoldUntilMs = 0;
 
 float solarVoltage = 0.0f;  // Volts
 float solarCurrent = 0.0f;  // Amps
@@ -318,6 +322,7 @@ bool readDHT11(uint8_t pin, float& temp, float& humidity) {
 // ---------------- FORWARD DECLARATIONS ----------------
 void motorOn();
 void motorOff();
+void forceMotorOff();
 void stepPulse(int delayUs);
 void moveToAngle(float targetAngle, int speedUs = 0);
 void findZeroHomeDatum();
@@ -414,8 +419,14 @@ void loop() {
   updatePowerSensors();
   updateDhtSensors();
 
-  // 4. Sun Tracking (every 500ms in AUTO mode)
+  // 4. Auto-relax motor coils after holding window unless manual hold is active
   unsigned long now = millis();
+  if (!manualMotorHold && motorHoldUntilMs > 0 && now >= motorHoldUntilMs) {
+    motorHoldUntilMs = 0;
+    digitalWrite(PIN_ENABLE, HIGH);
+  }
+
+  // 5. Sun Tracking (every 500ms in AUTO mode)
   if (now - lastTrackTime >= 500) {
     lastTrackTime = now;
     if (isAutoTracking) {
@@ -614,7 +625,7 @@ void handleManualControls() {
 // CURRENT SENSOR AUTO-ZERO CALIBRATION
 // =============================================================================
 void calibrateCurrentSensor() {
-  motorOff();
+  forceMotorOff();
   delay(150);  // Allow motor coils to fully de-energize and power rail to stabilize
 
   long sum = 0;
@@ -632,7 +643,7 @@ void calibrateCurrentSensor() {
 // =============================================================================
 void updatePowerSensors() {
   unsigned long now = millis();
-  if (now - lastPowerReadTime < 500) return;
+  if (now - lastPowerReadTime < 250) return;
   lastPowerReadTime = now;
 
   // 1. Solar Voltage (PA6)
@@ -657,13 +668,13 @@ void updatePowerSensors() {
   lastCurrentDiffVolt = diffVolt;
   float absDiff = fabs(diffVolt);
 
-  // Deadband around zero: if difference is less than 35mV (~0.16A), force 0.00 A
-  if (absDiff < 0.035f) {
+  // Responsive deadband: 12mV (~0.06A) allows motor and light currents to register
+  if (absDiff < currentDeadbandVolt) {
     solarCurrent = 0.0f;
   } else {
     // Bidirectional sensing: absDiff works for both wiring polarities
     solarCurrent = absDiff / currentSensitivity;
-    if (solarCurrent < 0.08f) solarCurrent = 0.0f;   // Clean noise floor
+    if (solarCurrent < 0.03f) solarCurrent = 0.0f;   // Clean noise floor (< 30mA)
     if (solarCurrent > 2.05f) solarCurrent = 2.00f;  // Saturation cap
   }
 
@@ -973,8 +984,14 @@ void moveToAngle(float targetAngle, int speedUs) {
   }
 
   currentAngle = targetAngle;
-  motorOff();
   digitalWrite(PIN_STATUS_LED, HIGH);
+
+  // Keep holding torque energized for 1.5s after motion so telemetry frames transmit the active current
+  if (!manualMotorHold) {
+    motorHoldUntilMs = millis() + 1500;
+  }
+  lastPowerReadTime = 0;
+  updatePowerSensors();
 }
 
 void stepPulse(int delayUs) {
@@ -986,10 +1003,18 @@ void stepPulse(int delayUs) {
 
 void motorOn() {
   digitalWrite(PIN_ENABLE, LOW);
-  delay(5);
+  delay(2);
 }
 
 void motorOff() {
+  if (!manualMotorHold) {
+    digitalWrite(PIN_ENABLE, HIGH);
+  }
+}
+
+void forceMotorOff() {
+  manualMotorHold = false;
+  motorHoldUntilMs = 0;
   digitalWrite(PIN_ENABLE, HIGH);
 }
 
@@ -1014,7 +1039,7 @@ void handleCommand(char* cmd) {
     printlnAll(F("\n[CMD] Manual mode active (Awaiting remote GOTO/JOG or Potentiometer).\n"));
   } else if (strcasecmp(cmd, "STOP") == 0) {
     isAutoTracking = false;
-    motorOff();
+    forceMotorOff();
     lastTrackingStatus = "EMERGENCY STOP (Coils OFF)";
     printlnAll(F("\n[CMD] EMERGENCY STOP: Motor coils disabled.\n"));
   } else if (strcasecmp(cmd, "HOME") == 0) {
@@ -1084,7 +1109,45 @@ void handleCommand(char* cmd) {
       printAll(currentSensitivity, 3);
       printlnAll(F(" V/A\n"));
     }
+  } else if (strncasecmp(cmd, "DEAD_CURR ", 10) == 0 || strncasecmp(cmd, "CURR_DEAD ", 10) == 0) {
+    float val = parseCustomFloat(cmd + 10);
+    if (val >= 0.001f && val <= 0.100f) {
+      currentDeadbandVolt = val;
+      printAll(F("\n[CMD] Current Deadband set to: "));
+      printAll(currentDeadbandVolt * 1000.0f, 1);
+      printlnAll(F(" mV\n"));
+    }
+  } else if (strcasecmp(cmd, "MOTOR_ON") == 0 || strcasecmp(cmd, "M_ON") == 0 || strcasecmp(cmd, "HOLD_ON") == 0) {
+    manualMotorHold = true;
+    motorHoldUntilMs = 0;
+    motorOn();
+    lastPowerReadTime = 0;
+    updatePowerSensors();
+    printAll(F("\n[CMD] Motor Coils ENERGIZED (Holding ON) | Live Current: "));
+    printAll(solarCurrent, 2);
+    printlnAll(F(" A\n"));
+  } else if (strcasecmp(cmd, "MOTOR_OFF") == 0 || strcasecmp(cmd, "M_OFF") == 0 || strcasecmp(cmd, "HOLD_OFF") == 0) {
+    forceMotorOff();
+    lastPowerReadTime = 0;
+    updatePowerSensors();
+    printAll(F("\n[CMD] Motor Coils DE-ENERGIZED (0W) | Live Current: "));
+    printAll(solarCurrent, 2);
+    printlnAll(F(" A\n"));
+  } else if (strcasecmp(cmd, "LIVE_CURR") == 0 || strcasecmp(cmd, "STREAM_CURR") == 0) {
+    printlnAll(F("\n[ACS712] Streaming live PA7 current (20 samples)..."));
+    for (int k = 0; k < 20; k++) {
+      lastPowerReadTime = 0;
+      updatePowerSensors();
+      printAll(F("PA7: ")); printAll(lastAdcCurrS, 3);
+      printAll(F("V | Diff: ")); printAll(lastCurrentDiffVolt, 3);
+      printAll(F("V | Curr: ")); printAll(solarCurrent, 2);
+      printlnAll(F(" A"));
+      delay(150);
+    }
+    printlnAll();
   } else if (strcasecmp(cmd, "CURR") == 0 || strcasecmp(cmd, "CURRENT") == 0 || strcasecmp(cmd, "ACS") == 0) {
+    lastPowerReadTime = 0;
+    updatePowerSensors();
     printBar();
     printAll(F("[ACS712] PA7: ")); printAll(lastAdcCurrS, 3);
     printAll(F("V | Offset: ")); printAll(currentZeroOffset, 3);
@@ -1092,7 +1155,8 @@ void handleCommand(char* cmd) {
     printAll(F("V\n[ACS712] Current: ")); printAll(solarCurrent, 2);
     printAll(F("A | Power: ")); printAll(solarPower, 2);
     printAll(F("W | Sens: ")); printAll(currentSensitivity, 3);
-    printlnAll(F(" V/A"));
+    printAll(F(" V/A | Coils: "));
+    printlnAll(digitalRead(PIN_ENABLE) == LOW ? F("ON") : F("OFF"));
     printBar();
   } else if (strncasecmp(cmd, "CAL_AMP ", 8) == 0 || strncasecmp(cmd, "AMP ", 4) == 0) {
     float targetAmp = parseCustomFloat(cmd + (*cmd == 'C' ? 8 : 4));
@@ -1276,8 +1340,8 @@ void processSerialInput() {
 
 void printHelp() {
   printBar();
-  printlnAll(F("CMDS: AUTO | MANUAL | MODE | SW | INVERT_SW | INVERT_POT"));
-  printlnAll(F("      RECOVER | LEFT <deg> | RIGHT <deg> | GOTO <deg>"));
-  printlnAll(F("      ZERO | HOME | STATUS | DHT | CURR | SET_ZERO <f>"));
+  printlnAll(F("CMDS: AUTO | MANUAL | MOTOR_ON | MOTOR_OFF | LIVE_CURR"));
+  printlnAll(F("      ZERO_CURR | SENS <f> | DEAD_CURR <f> | CURR | STATUS"));
+  printlnAll(F("      RECOVER | LEFT <deg> | RIGHT <deg> | GOTO <deg> | ZERO"));
   printBar();
 }
