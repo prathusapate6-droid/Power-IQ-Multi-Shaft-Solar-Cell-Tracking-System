@@ -490,7 +490,7 @@ export function useSolarSimulation() {
   const handleJogAngle = useCallback((delta: number) => {
     setIsEmergencyStopped(false);
     setIsMotorMoving(true);
-    const nextAngle = Math.max(-40, Math.min(40, actualShaftAngle + delta));
+    const nextAngle = Math.max(-35, Math.min(35, actualShaftAngle + delta));
     sendCommand(`GOTO ${nextAngle.toFixed(1)}`);
     setTimeout(() => setIsMotorMoving(false), 800);
     setAlerts((prev) => [

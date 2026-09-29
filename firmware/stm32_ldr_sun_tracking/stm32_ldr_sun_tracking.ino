@@ -98,8 +98,8 @@ unsigned long lastDhtReadTime = 0;
 // ---------------- KINEMATICS & BENCH CONSTANTS ----------------
 // ---------------- KINEMATICS & BENCH CONSTANTS ----------------
 const float STEPS_PER_DEGREE = 10.556f;  // 19:1 Worm gear ratio
-const float MIN_ANGLE = -45.0f;          // Hard Mechanical Structural Limit (-45.0 deg)
-const float MAX_ANGLE = 45.0f;           // Hard Mechanical Structural Limit (+45.0 deg)
+const float MIN_ANGLE = -35.0f;          // Hard Mechanical Structural Limit (-35.0 deg)
+const float MAX_ANGLE = 35.0f;           // Hard Mechanical Structural Limit (+35.0 deg)
 
 int deadbandThreshold = 25;  // Calibrated from live hardware: Balanced is +/-12, Tilted is 35-90
 int nightDarkThreshold = 500; // Night park threshold (active daylight is ~3950-4030)
@@ -537,11 +537,11 @@ void handleManualControls() {
     filteredPotAdc = (filteredPotAdc * (1.0f - alpha)) + (rawAveraged * alpha);
   }
 
-  // C. Calculate Target Angle (-45.0° to +45.0°) with Center & Limit Snapping
+  // C. Calculate Target Angle (-35.0° to +35.0°) with Center & Limit Snapping
   // Center (ADC ~2048) -> 0.0 deg ZERO DATUM
-  // Clockwise (ADC -> 4095) -> Positive (+0.1 to +45.0 deg)
-  // Anti-Clockwise (ADC -> 0) -> Negative (-0.1 to -45.0 deg)
-  float rawDeg = ((filteredPotAdc / 4095.0f) * 90.0f) - 45.0f;
+  // Clockwise (ADC -> 4095) -> Positive (+0.1 to +35.0 deg)
+  // Anti-Clockwise (ADC -> 0) -> Negative (-0.1 to -35.0 deg)
+  float rawDeg = ((filteredPotAdc / 4095.0f) * 70.0f) - 35.0f;
   if (potInvert) rawDeg = -rawDeg;
 
   // Center Zero Deadband: snap cleanly to exact 0.0 deg ZERO datum within +/- 1.5 deg
@@ -549,13 +549,13 @@ void handleManualControls() {
     rawDeg = 0.0f;
   }
 
-  // Hard limit clamping to exactly -45.0 deg and +45.0 deg
-  if (rawDeg > 45.0f) rawDeg = 45.0f;
-  if (rawDeg < -45.0f) rawDeg = -45.0f;
+  // Hard limit clamping to exactly -35.0 deg and +35.0 deg
+  if (rawDeg > 35.0f) rawDeg = 35.0f;
+  if (rawDeg < -35.0f) rawDeg = -35.0f;
 
   // End limit snapping near full physical boundaries
-  if (rawDeg >= 43.5f) rawDeg = 45.0f;
-  if (rawDeg <= -43.5f) rawDeg = -45.0f;
+  if (rawDeg >= 33.5f) rawDeg = 35.0f;
+  if (rawDeg <= -33.5f) rawDeg = -35.0f;
 
   // 0.5° Resolution Quantization (eliminates fractional bouncing)
   float targetPotAngle = roundf(rawDeg * 2.0f) / 2.0f;
@@ -801,7 +801,7 @@ void findZeroHomeDatum() {
     currentAngle = 0.0f;
     isHomed = true;
     lastTrackingStatus = "ZERO DATUM LOCKED (0.0 deg)";
-    printlnAll(F("[HOMING] Magnet centered! ZERO Locked at 0.0 deg (Limits: +/-45 deg)."));
+    printlnAll(F("[HOMING] Magnet centered! ZERO Locked at 0.0 deg (Limits: +/-35 deg)."));
   } else {
     // Magnet not reached: Return ~95 deg back towards center
     digitalWrite(PIN_DIR, LOW);
@@ -932,7 +932,7 @@ void executeSunTracking() {
         lastTrackingStatus = "TRACKING SUN (+)";
         moveToAngle(nextAngle, TRACKING_SPEED_US);
       } else {
-        lastTrackingStatus = "LIMIT REACHED (+45 deg MAX)";
+        lastTrackingStatus = "LIMIT REACHED (+35 deg MAX)";
       }
     } else {
       float nextAngle = currentAngle - 1.0f;
@@ -940,7 +940,7 @@ void executeSunTracking() {
         lastTrackingStatus = "TRACKING SUN (-)";
         moveToAngle(nextAngle, TRACKING_SPEED_US);
       } else {
-        lastTrackingStatus = "LIMIT REACHED (-45 deg MIN)";
+        lastTrackingStatus = "LIMIT REACHED (-35 deg MIN)";
       }
     }
   }
@@ -997,11 +997,11 @@ void printTelemetry() {
 // MOTOR KINEMATIC CONTROL
 // =============================================================================
 void moveToAngle(float targetAngle, int speedUs) {
-  // HARD MECHANICAL PROTECTION: Never exceed -45.0 to +45.0 deg
-  if (targetAngle < -45.0f) targetAngle = -45.0f;
-  if (targetAngle > 45.0f) targetAngle = 45.0f;
+  // HARD MECHANICAL PROTECTION: Never exceed -35.0 to +35.0 deg
+  if (targetAngle < -35.0f) targetAngle = -35.0f;
+  if (targetAngle > 35.0f) targetAngle = 35.0f;
 
-  // Safe operating boundaries: keep safely within MIN_ANGLE (-40.0 deg) and MAX_ANGLE (+40.0 deg)
+  // Safe operating boundaries: keep safely within MIN_ANGLE (-35.0 deg) and MAX_ANGLE (+35.0 deg)
   if (targetAngle < MIN_ANGLE) targetAngle = MIN_ANGLE;
   if (targetAngle > MAX_ANGLE) targetAngle = MAX_ANGLE;
 
@@ -1009,8 +1009,8 @@ void moveToAngle(float targetAngle, int speedUs) {
   if (fabs(deltaDeg) < 0.05f) return;
 
   long steps = (long)(fabs(deltaDeg) * STEPS_PER_DEGREE + 0.5f);
-  // Maximum travel cap in a single move: strictly limited to 90 degrees total physical span
-  long maxAllowedSteps = (long)(90.0f * STEPS_PER_DEGREE);
+  // Maximum travel cap in a single move: strictly limited to 70 degrees total physical span
+  long maxAllowedSteps = (long)(70.0f * STEPS_PER_DEGREE);
   if (steps > maxAllowedSteps) steps = maxAllowedSteps;
   if (steps == 0) {
     currentAngle = targetAngle;
@@ -1257,12 +1257,12 @@ void handleCommand(char* cmd) {
       printlnAll(F("\n[CMD] Switched to MANUAL Mode (Potentiometer active).\n"));
     }
   } else if (strcasecmp(cmd, "RECOVER") == 0 || strcasecmp(cmd, "RECOVER_LEFT") == 0) {
-    printlnAll(F("\n[RECOVERY] Recovering mechanism from >+45 deg back to 0.0 deg ZERO..."));
+    printlnAll(F("\n[RECOVERY] Recovering mechanism from >+35 deg back to 0.0 deg ZERO..."));
     motorOn();
     digitalWrite(PIN_STATUS_LED, LOW);
     digitalWrite(PIN_DIR, LOW); // Step in negative direction towards zero
-    long steps45 = (long)(45.0f * STEPS_PER_DEGREE);
-    for (long s = 0; s < steps45; s++) {
+    long steps35 = (long)(35.0f * STEPS_PER_DEGREE);
+    for (long s = 0; s < steps35; s++) {
       if (digitalRead(PIN_HALL_HOME) == LOW) {
         printlnAll(F("[RECOVERY] Magnet detected! Centering on ZERO datum..."));
         break;
@@ -1277,7 +1277,7 @@ void handleCommand(char* cmd) {
     printlnAll(F("[RECOVERY] Slats recovered to ZERO position! Locked at 0.0 deg.\n"));
   } else if (strncasecmp(cmd, "LEFT ", 5) == 0 || strncasecmp(cmd, "JOG_LEFT ", 9) == 0) {
     float deg = parseCustomFloat(cmd + (*cmd == 'J' ? 9 : 5));
-    if (deg > 0.0f && deg <= 45.0f) {
+    if (deg > 0.0f && deg <= 35.0f) {
       isAutoTracking = false;
       printAll(F("\n[JOG] Jogging slats LEFT by "));
       printAll(deg, 1);
@@ -1286,7 +1286,7 @@ void handleCommand(char* cmd) {
     }
   } else if (strncasecmp(cmd, "RIGHT ", 6) == 0 || strncasecmp(cmd, "JOG_RIGHT ", 10) == 0) {
     float deg = parseCustomFloat(cmd + (*cmd == 'J' ? 10 : 6));
-    if (deg > 0.0f && deg <= 45.0f) {
+    if (deg > 0.0f && deg <= 35.0f) {
       isAutoTracking = false;
       printAll(F("\n[JOG] Jogging slats RIGHT by "));
       printAll(deg, 1);
