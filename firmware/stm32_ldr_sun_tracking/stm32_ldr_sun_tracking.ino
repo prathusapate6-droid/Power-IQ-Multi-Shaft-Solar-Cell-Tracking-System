@@ -646,42 +646,59 @@ void updatePowerSensors() {
   if (now - lastPowerReadTime < 250) return;
   lastPowerReadTime = now;
 
-  // 1. Solar Voltage (PA6)
+  // 1. Solar Voltage (PA6) with smooth anti-jitter filter
   long sumSV = 0;
-  for (int i = 0; i < 8; i++) {
+  for (int i = 0; i < 16; i++) {
     sumSV += analogRead(PIN_SOLAR_VOLT);
     delayMicroseconds(40);
   }
-  float adcVoltS = ((sumSV / 8.0f) * refVoltage) / 4095.0f;
-  solarVoltage = adcVoltS * VOLT_DIVIDER_RATIO;
-  if (solarVoltage < 0.20f) solarVoltage = 0.0f;  // Noise floor
-
-  // 2. Solar Current (PA7) with auto-calibrated zero baseline
-  long sumSC = 0;
-  for (int i = 0; i < 32; i++) {
-    sumSC += analogRead(PIN_SOLAR_CURR);
-    delayMicroseconds(50);
+  float adcVoltS = ((sumSV / 16.0f) * refVoltage) / 4095.0f;
+  float rawSolarVolt = adcVoltS * VOLT_DIVIDER_RATIO;
+  if (rawSolarVolt < 0.20f) rawSolarVolt = 0.0f;
+  static float filteredSolarVolt = -1.0f;
+  if (filteredSolarVolt < 0.0f) {
+    filteredSolarVolt = rawSolarVolt;
+  } else {
+    filteredSolarVolt = (filteredSolarVolt * 0.75f) + (rawSolarVolt * 0.25f);
   }
-  float adcCurrS = ((sumSC / 32.0f) * refVoltage) / 4095.0f;
+  solarVoltage = filteredSolarVolt;
+
+  // 2. Solar Current (PA7) with 64x multisampling (cancels AC/PWM 50Hz/100Hz ripple)
+  long sumSC = 0;
+  for (int i = 0; i < 64; i++) {
+    sumSC += analogRead(PIN_SOLAR_CURR);
+    delayMicroseconds(250);
+  }
+  float adcCurrS = ((sumSC / 64.0f) * refVoltage) / 4095.0f;
   lastAdcCurrS = adcCurrS;
   float diffVolt = adcCurrS - currentZeroOffset;
   lastCurrentDiffVolt = diffVolt;
   float absDiff = fabs(diffVolt);
 
-  // Responsive deadband: 3.5mV prevents idle noise, scales active current up to 2.0A
   float rawCurrent = 0.0f;
   if (absDiff >= currentDeadbandVolt) {
     rawCurrent = absDiff / currentSensitivity;
     if (rawCurrent > 2.05f) rawCurrent = 2.00f;  // Panel 2A physical saturation cap
   }
 
-  // Smooth filter (EMA) to prevent single-sample jumping
+  // Stable Hysteresis Hold Filter: Locks onto active current, stops 0.00A/1.50A swinging!
   static float filteredCurr = 0.0f;
-  if (rawCurrent <= 0.0f) {
-    filteredCurr = (filteredCurr * 0.50f);
-    if (filteredCurr < 0.04f) filteredCurr = 0.0f;
+  static unsigned long lastActiveCurrentMs = 0;
+
+  if (rawCurrent > 0.15f) {
+    lastActiveCurrentMs = now;
+    // Smoothly track active current without oscillation
+    if (filteredCurr < 0.15f) {
+      filteredCurr = rawCurrent;
+    } else {
+      filteredCurr = (filteredCurr * 0.80f) + (rawCurrent * 0.20f);
+    }
   } else {
-    filteredCurr = (filteredCurr * 0.40f) + (rawCurrent * 0.60f);
+    // If current dips momentarily, hold reading for 1.2s before settling to 0.00 A
+    if (now - lastActiveCurrentMs > 1200) {
+      filteredCurr = (filteredCurr * 0.70f);
+      if (filteredCurr < 0.04f) filteredCurr = 0.0f;
+    }
   }
   solarCurrent = filteredCurr;
 
