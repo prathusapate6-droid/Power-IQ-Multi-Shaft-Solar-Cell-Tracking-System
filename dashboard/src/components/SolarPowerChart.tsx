@@ -402,6 +402,9 @@ export const SolarPowerChart: React.FC<SolarPowerChartProps> = ({
     ? solar.humidityPct 
     : (currentPoint?.humidity ?? 52);
 
+  // Only display generated data up to current time slot; future hours do NOT appear until data is generated!
+  const generatedData = data.filter((p) => p.hour <= currentHourDecimal + 0.25);
+
   // ===========================================================================
   // RENDER: Dedicated Power Chart (Large High-Resolution Canvas)
   // ===========================================================================
@@ -410,7 +413,7 @@ export const SolarPowerChart: React.FC<SolarPowerChartProps> = ({
     return (
       <div className={`${heightClass} w-full`}>
         <ReResponsiveContainer width="100%" height="100%">
-          <ReAreaChart data={data} margin={{ top: 12, right: 20, left: -5, bottom: 0 }}>
+          <ReAreaChart data={generatedData} margin={{ top: 12, right: 20, left: -5, bottom: 0 }}>
             <defs>
               <linearGradient id="trackingGrad" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="5%" stopColor="#10b981" stopOpacity={0.45} />
@@ -489,7 +492,7 @@ export const SolarPowerChart: React.FC<SolarPowerChartProps> = ({
   const renderVoltageChart = (heightClass = "h-88 sm:h-96") => (
     <div className={`${heightClass} w-full`}>
       <ReResponsiveContainer width="100%" height="100%">
-        <ReAreaChart data={data} margin={{ top: 12, right: 20, left: -5, bottom: 0 }}>
+        <ReAreaChart data={generatedData} margin={{ top: 12, right: 20, left: -5, bottom: 0 }}>
           <defs>
             <linearGradient id="pvVoltGrad" x1="0" y1="0" x2="0" y2="1">
               <stop offset="5%" stopColor="#2563eb" stopOpacity={0.4} />
@@ -548,7 +551,7 @@ export const SolarPowerChart: React.FC<SolarPowerChartProps> = ({
   const renderCurrentChart = (heightClass = "h-88 sm:h-96") => (
     <div className={`${heightClass} w-full`}>
       <ReResponsiveContainer width="100%" height="100%">
-        <ReAreaChart data={data} margin={{ top: 12, right: 20, left: -5, bottom: 0 }}>
+        <ReAreaChart data={generatedData} margin={{ top: 12, right: 20, left: -5, bottom: 0 }}>
           <defs>
             <linearGradient id="currentGrad" x1="0" y1="0" x2="0" y2="1">
               <stop offset="5%" stopColor="#06b6d4" stopOpacity={0.45} />
@@ -596,7 +599,7 @@ export const SolarPowerChart: React.FC<SolarPowerChartProps> = ({
   const renderClimateChart = (heightClass = "h-88 sm:h-96") => (
     <div className={`${heightClass} w-full`}>
       <ReResponsiveContainer width="100%" height="100%">
-        <ReAreaChart data={data} margin={{ top: 12, right: 20, left: -5, bottom: 0 }}>
+        <ReAreaChart data={generatedData} margin={{ top: 12, right: 20, left: -5, bottom: 0 }}>
           <defs>
             <linearGradient id="tempGrad" x1="0" y1="0" x2="0" y2="1">
               <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.4} />
@@ -653,7 +656,7 @@ export const SolarPowerChart: React.FC<SolarPowerChartProps> = ({
   const renderUnifiedAllChart = (heightClass = "h-88 sm:h-96") => (
     <div className={`${heightClass} w-full`}>
       <ReResponsiveContainer width="100%" height="100%">
-        <ReComposedChart data={data} margin={{ top: 12, right: 20, left: -5, bottom: 0 }}>
+        <ReComposedChart data={generatedData} margin={{ top: 12, right: 20, left: -5, bottom: 0 }}>
           <defs>
             <linearGradient id="trackingGradAll" x1="0" y1="0" x2="0" y2="1">
               <stop offset="5%" stopColor="#10b981" stopOpacity={0.30} />

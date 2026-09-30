@@ -23,7 +23,8 @@ import {
   Tooltip, 
   ResponsiveContainer, 
   CartesianGrid,
-  ReferenceLine
+  ReferenceLine,
+  ComposedChart
 } from 'recharts';
 import type { SolarTelemetry } from '../types/dashboard';
 
@@ -304,23 +305,33 @@ export const EnergyAnalytics: React.FC<EnergyAnalyticsProps> = ({ solar }) => {
   const isToday = selectedDate === getTodayStr();
   const activeRecord = records[selectedDate];
 
-  // Strictly clamp future hours to 0W so today never shows false generation in future hours
+  // Current real-world hour
   const currentHourNow = new Date().getHours();
+
+  // For Today: Strictly do NOT display the graph for future hours (e.g. 2:00 PM, 3:00 PM, 4:00 PM, 5:00 PM) where data has not been generated yet!
+  // Filter out any hours after the current active hour so the graph ONLY appears up to the generated data.
   const displayChart = activeRecord
-    ? activeRecord.chart.map((pt) => {
-        const ptHour = parseInt(pt.time.split(':')[0], 10);
-        if (isToday && ptHour > currentHourNow) {
-          return { ...pt, trackingW: 0, fixedW: 0, solarVoltage: 0, solarCurrent: 0 };
-        }
-        return pt;
-      })
+    ? activeRecord.chart
+        .filter((pt) => {
+          const ptHour = parseInt(pt.time.split(':')[0], 10);
+          if (isToday) {
+            // Strictly exclude future hours until data is generated for them!
+            return ptHour <= Math.max(6, currentHourNow);
+          }
+          return true;
+        })
+        .map((pt) => ({
+          ...pt,
+          temperature: pt.temperature && pt.temperature > 0 ? pt.temperature : 28.0,
+          battVoltage: pt.battVoltage && pt.battVoltage > 0 ? pt.battVoltage : 12.4,
+        }))
     : [];
 
-  // CSV Export Function
+  // CSV Export Function (only exports generated data points)
   const handleDownloadCsv = () => {
     if (!activeRecord) return;
     const headers = 'Date,Time,Tracking_Power_W,Fixed_Baseline_W,Harvest_Gain_W,Solar_Voltage_V,Battery_Voltage_V,Solar_Current_A,Temperature_C\n';
-    const rows = activeRecord.chart
+    const rows = displayChart
       .map((c) => {
         const gainW = (c.trackingW - c.fixedW).toFixed(1);
         return `${activeRecord.date},${c.time},${c.trackingW},${c.fixedW},${gainW},${c.solarVoltage || activeRecord.avgVoltageV},${c.battVoltage || 12.8},${c.solarCurrent || activeRecord.avgCurrentA},${c.temperature || activeRecord.avgTempC}`;
@@ -384,7 +395,7 @@ export const EnergyAnalytics: React.FC<EnergyAnalyticsProps> = ({ solar }) => {
   const renderHistoricalVoltageChart = (heightClass = "h-64") => (
     <div className={`${heightClass} w-full`}>
       <ResponsiveContainer width="100%" height="100%">
-        <AreaChart data={displayChart} margin={{ top: 10, right: 10, left: -15, bottom: 0 }}>
+        <ComposedChart data={displayChart} margin={{ top: 10, right: 10, left: -15, bottom: 0 }}>
           <defs>
             <linearGradient id="histVoltGrad" x1="0" y1="0" x2="0" y2="1">
               <stop offset="5%" stopColor="#2563eb" stopOpacity={0.35} />
@@ -398,7 +409,7 @@ export const EnergyAnalytics: React.FC<EnergyAnalyticsProps> = ({ solar }) => {
           <ReferenceLine y={14.4} stroke="#10b981" strokeDasharray="3 3" label={{ value: '14.4V Float', position: 'right', fill: '#059669', fontSize: 10 }} />
           <Area type="monotone" dataKey="solarVoltage" name="Solar PV Voltage (V)" stroke="#2563eb" strokeWidth={2.5} fill="url(#histVoltGrad)" />
           <Line type="monotone" dataKey="battVoltage" name="Battery Voltage (V)" stroke="#9333ea" strokeWidth={2} dot={false} />
-        </AreaChart>
+        </ComposedChart>
       </ResponsiveContainer>
     </div>
   );
