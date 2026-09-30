@@ -25,9 +25,19 @@ export function useSolarSimulation() {
     sendCommand,
   } = useHardwareMqtt();
 
-  // Current real hour in decimal (e.g. 14.5 = 2:30 PM)
-  const now = new Date();
-  const hourDecimal = now.getHours() + now.getMinutes() / 60;
+  // Current real hour in decimal (e.g. 13.916 = 1:55 PM), updating continuously
+  const [hourDecimal, setHourDecimal] = useState<number>(() => {
+    const d = new Date();
+    return d.getHours() + d.getMinutes() / 60 + d.getSeconds() / 3600;
+  });
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const d = new Date();
+      setHourDecimal(d.getHours() + d.getMinutes() / 60 + d.getSeconds() / 3600);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   // Dynamic Diurnal / Historical points tied to current date
   const todayDateStr = new Date().toISOString().split('T')[0];
@@ -143,8 +153,9 @@ export function useSolarSimulation() {
       const realFixedKw = Number((solarPowerKw * fixedRatio).toFixed(3));
 
       const updated = prev.map((p) => {
-        // Current active time slot (within 25 mins of now)
-        if (Math.abs(p.hour - targetH) < 0.45) {
+        // Most recent completed or active 30-min time slot strictly in the past or right now
+        const isCurrentSlot = p.hour <= targetH && (targetH - p.hour) < 0.5;
+        if (isCurrentSlot) {
           return {
             ...p,
             trackingKw: solarPowerKw,
@@ -159,8 +170,8 @@ export function useSolarSimulation() {
             humidity: telemetry && telemetry.humidity ? telemetry.humidity : p.humidity,
           };
         }
-        // Future hours are ALWAYS zero
-        if (p.hour > curH + 0.25) {
+        // Future hours (strictly p.hour > targetH) are ALWAYS zero until that time arrives
+        if (p.hour > targetH) {
           return {
             ...p,
             trackingKw: 0,

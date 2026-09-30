@@ -55,6 +55,17 @@ export interface DailyRecord {
   chart: DailyPoint[];
 }
 
+const formatTimeLabel = (timeStr: string) => {
+  if (!timeStr || !timeStr.includes(':')) return timeStr;
+  const parts = timeStr.split(':');
+  const h = parseInt(parts[0], 10);
+  const m = parseInt(parts[1], 10);
+  if (isNaN(h) || isNaN(m)) return timeStr;
+  const h12 = h % 12 || 12;
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  return `${timeStr} (${h12.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')} ${ampm})`;
+};
+
 const STORAGE_KEY = 'power_iq_daily_telemetry_v7';
 const FIREBASE_RTDB_URL = 'https://engineering-project-hub-default-rtdb.firebaseio.com';
 
@@ -367,7 +378,7 @@ export const EnergyAnalytics: React.FC<EnergyAnalyticsProps> = ({ solar }) => {
             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
             <XAxis dataKey="time" stroke="#94a3b8" fontSize={11} tickLine={false} />
             <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} tickFormatter={(val) => `${val}W`} domain={[0, 50]} />
-            <Tooltip contentStyle={{ backgroundColor: '#0f172a', border: 'none', borderRadius: '8px', color: '#fff', fontSize: '11px', fontFamily: 'monospace' }} />
+            <Tooltip labelFormatter={(label: any) => formatTimeLabel(String(label))} contentStyle={{ backgroundColor: '#0f172a', border: 'none', borderRadius: '8px', color: '#fff', fontSize: '11px', fontFamily: 'monospace' }} />
             <Area type="monotone" dataKey="fixedW" name="Without Tracking: Fixed Array (W)" stroke="#f59e0b" strokeWidth={2.5} fill="url(#histFixedGrad)" />
           </AreaChart>
         ) : (
@@ -376,6 +387,7 @@ export const EnergyAnalytics: React.FC<EnergyAnalyticsProps> = ({ solar }) => {
             <XAxis dataKey="time" stroke="#94a3b8" fontSize={11} tickLine={false} />
             <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} tickFormatter={(val) => `${val}W`} domain={[0, 50]} ticks={[0, 10, 20, 30, 40, 50]} />
             <Tooltip 
+              labelFormatter={(label: any) => formatTimeLabel(String(label))}
               formatter={(val: any) => [`${val} W`]}
               contentStyle={{ backgroundColor: '#0f172a', border: 'none', borderRadius: '8px', color: '#fff', fontSize: '11px', fontFamily: 'monospace' }}
             />
@@ -405,7 +417,7 @@ export const EnergyAnalytics: React.FC<EnergyAnalyticsProps> = ({ solar }) => {
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
           <XAxis dataKey="time" stroke="#94a3b8" fontSize={11} tickLine={false} />
           <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} tickFormatter={(val) => `${val}V`} domain={[0, 20]} ticks={[0, 5, 10, 15, 20]} />
-          <Tooltip contentStyle={{ backgroundColor: '#0f172a', border: 'none', borderRadius: '8px', color: '#fff', fontSize: '11px', fontFamily: 'monospace' }} />
+          <Tooltip labelFormatter={(label: any) => formatTimeLabel(String(label))} contentStyle={{ backgroundColor: '#0f172a', border: 'none', borderRadius: '8px', color: '#fff', fontSize: '11px', fontFamily: 'monospace' }} />
           <ReferenceLine y={14.4} stroke="#10b981" strokeDasharray="3 3" label={{ value: '14.4V Float', position: 'right', fill: '#059669', fontSize: 10 }} />
           <Area type="monotone" dataKey="solarVoltage" name="Solar PV Voltage (V)" stroke="#2563eb" strokeWidth={2.5} fill="url(#histVoltGrad)" />
           <Line type="monotone" dataKey="battVoltage" name="Battery Voltage (V)" stroke="#9333ea" strokeWidth={2} dot={false} />
@@ -428,7 +440,7 @@ export const EnergyAnalytics: React.FC<EnergyAnalyticsProps> = ({ solar }) => {
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
           <XAxis dataKey="time" stroke="#94a3b8" fontSize={11} tickLine={false} />
           <YAxis stroke="#0891b2" fontSize={11} tickLine={false} tickFormatter={(val) => `${val}A`} domain={[0, 2.5]} ticks={[0, 0.5, 1.0, 1.5, 2.0, 2.5]} />
-          <Tooltip contentStyle={{ backgroundColor: '#0f172a', border: 'none', borderRadius: '8px', color: '#fff', fontSize: '11px', fontFamily: 'monospace' }} />
+          <Tooltip labelFormatter={(label: any) => formatTimeLabel(String(label))} contentStyle={{ backgroundColor: '#0f172a', border: 'none', borderRadius: '8px', color: '#fff', fontSize: '11px', fontFamily: 'monospace' }} />
           <Area type="monotone" dataKey="solarCurrent" name="Solar Current (A)" stroke="#06b6d4" strokeWidth={2.5} fill="url(#histCurrGrad)" />
         </AreaChart>
       </ResponsiveContainer>
@@ -449,7 +461,7 @@ export const EnergyAnalytics: React.FC<EnergyAnalyticsProps> = ({ solar }) => {
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
           <XAxis dataKey="time" stroke="#94a3b8" fontSize={11} tickLine={false} />
           <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} tickFormatter={(val) => `${val}°C`} domain={[0, 60]} ticks={[0, 15, 30, 45, 60]} />
-          <Tooltip contentStyle={{ backgroundColor: '#0f172a', border: 'none', borderRadius: '8px', color: '#fff', fontSize: '11px', fontFamily: 'monospace' }} />
+          <Tooltip labelFormatter={(label: any) => formatTimeLabel(String(label))} contentStyle={{ backgroundColor: '#0f172a', border: 'none', borderRadius: '8px', color: '#fff', fontSize: '11px', fontFamily: 'monospace' }} />
           <ReferenceLine y={45} stroke="#ef4444" strokeDasharray="3 3" label={{ value: '45°C Limit', position: 'right', fill: '#dc2626', fontSize: 10 }} />
           <Area type="monotone" dataKey="temperature" name="Panel Temperature (°C)" stroke="#f59e0b" strokeWidth={2.5} fill="url(#histTempGrad)" />
         </AreaChart>

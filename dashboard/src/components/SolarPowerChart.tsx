@@ -35,6 +35,17 @@ interface SolarPowerChartProps {
 
 export type ChartMetric = 'power' | 'grid_all' | 'side_by_side' | 'voltage' | 'current' | 'climate' | 'all';
 
+export const formatTimeLabel = (timeStr: string) => {
+  if (!timeStr || !timeStr.includes(':')) return timeStr;
+  const parts = timeStr.split(':');
+  const h = parseInt(parts[0], 10);
+  const m = parseInt(parts[1], 10);
+  if (isNaN(h) || isNaN(m)) return timeStr;
+  const h12 = h % 12 || 12;
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  return `${timeStr} (${h12.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')} ${ampm})`;
+};
+
 // =============================================================================
 // Tooltips
 // =============================================================================
@@ -60,7 +71,7 @@ const UnifiedTooltip = ({ active, payload, label }: any) => {
         <div className="text-slate-200 font-semibold border-b border-slate-800 pb-2 mb-2 flex items-center justify-between gap-3">
           <span className="flex items-center gap-1.5 text-slate-300">
             <span className="w-2 h-2 rounded-full bg-amber-400"></span>
-            Time: <strong className="text-white">{label}</strong>
+            Time: <strong className="text-white">{formatTimeLabel(label)}</strong>
           </span>
           <span className="text-[10px] bg-emerald-950/90 text-emerald-300 border border-emerald-700/60 px-2 py-0.5 rounded font-bold">
             +{gainPercent}% Boost
@@ -159,7 +170,7 @@ const PowerTooltip = ({ active, payload, label, isManualMode }: any) => {
     return (
       <div className="bg-slate-900/95 text-white p-3 rounded-lg shadow-xl border border-slate-700 text-xs font-mono">
         <div className="text-slate-300 font-semibold border-b border-slate-700 pb-1 mb-1.5 flex items-center justify-between gap-4">
-          <span>Time: {label}</span>
+          <span>Time: {formatTimeLabel(label)}</span>
           <span className={`text-[10px] px-1.5 rounded font-bold ${isManualMode ? 'bg-amber-900/80 text-amber-300' : 'bg-emerald-900/80 text-emerald-300'}`}>
             {isManualMode ? 'Manual: Fixed Array' : `+${gainPercent}% Gain`}
           </span>
@@ -212,7 +223,7 @@ const VoltageTooltip = ({ active, payload, label }: any) => {
     return (
       <div className="bg-slate-900/95 text-white p-3 rounded-lg shadow-xl border border-slate-700 text-xs font-mono">
         <div className="text-slate-300 font-semibold border-b border-slate-700 pb-1 mb-1.5 flex items-center justify-between gap-4">
-          <span>Time: {label}</span>
+          <span>Time: {formatTimeLabel(label)}</span>
           <span className={`text-[10px] px-1.5 rounded font-bold ${isCharging ? 'bg-emerald-900/80 text-emerald-300' : 'bg-amber-900/80 text-amber-300'}`}>
             {isCharging ? 'Active Charging' : 'Standby / Float'}
           </span>
@@ -252,7 +263,7 @@ const CurrentTooltip = ({ active, payload, label }: any) => {
     return (
       <div className="bg-slate-900/95 text-white p-3 rounded-lg shadow-xl border border-slate-700 text-xs font-mono">
         <div className="text-slate-300 font-semibold border-b border-slate-700 pb-1 mb-1.5 flex items-center justify-between gap-4">
-          <span>Time: {label}</span>
+          <span>Time: {formatTimeLabel(label)}</span>
           <span className="text-[10px] bg-cyan-900/80 text-cyan-300 px-1.5 rounded font-bold">
             ACS712 Hall Sensor
           </span>
@@ -285,7 +296,7 @@ const ClimateTooltip = ({ active, payload, label }: any) => {
     return (
       <div className="bg-slate-900/95 text-white p-3 rounded-lg shadow-xl border border-slate-700 text-xs font-mono">
         <div className="text-slate-300 font-semibold border-b border-slate-700 pb-1 mb-1.5 flex items-center justify-between gap-4">
-          <span>Time: {label}</span>
+          <span>Time: {formatTimeLabel(label)}</span>
           <span className={`text-[10px] px-1.5 rounded font-bold ${isHot ? 'bg-rose-900/80 text-rose-300' : 'bg-emerald-900/80 text-emerald-300'}`}>
             {isHot ? 'High Temp Warning' : 'Optimal Climate'}
           </span>
@@ -359,16 +370,49 @@ export const SolarPowerChart: React.FC<SolarPowerChartProps> = ({
     humidity: false,
   });
 
-  // Daylight reference indicator
-  const isDaylight = currentHourDecimal >= 6 && currentHourDecimal <= 18;
-  const currentHourInt = Math.floor(currentHourDecimal);
-  const currentMinStr = currentHourDecimal % 1 >= 0.5 ? '30' : '00';
-  const currentTimeStr = `${currentHourInt.toString().padStart(2, '0')}:${currentMinStr}`;
+  // Live Clock Interval tracking exact real-time hours, minutes, and seconds
+  const [liveClock, setLiveClock] = useState(() => {
+    const d = new Date();
+    const h = d.getHours();
+    const m = d.getMinutes();
+    const s = d.getSeconds();
+    const h12 = h % 12 || 12;
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    return {
+      hourDecimal: h + m / 60 + s / 3600,
+      timeStr: `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`,
+      time12h: `${h12.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')} ${ampm}`,
+    };
+  });
+
+  useEffect(() => {
+    const updateTime = () => {
+      const d = new Date();
+      const h = d.getHours();
+      const m = d.getMinutes();
+      const s = d.getSeconds();
+      const h12 = h % 12 || 12;
+      const ampm = h >= 12 ? 'PM' : 'AM';
+      setLiveClock({
+        hourDecimal: h + m / 60 + s / 3600,
+        timeStr: `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`,
+        time12h: `${h12.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')} ${ampm}`,
+      });
+    };
+    const timer = setInterval(updateTime, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Use the live clock for real-time fidelity, falling back to prop if needed
+  const activeHourDecimal = liveClock.hourDecimal || currentHourDecimal;
+  const currentTimeStr = liveClock.timeStr;
+  const current12hStr = liveClock.time12h;
+  const isDaylight = activeHourDecimal >= 6 && activeHourDecimal <= 18;
 
   const isManual = displayMode === 'MANUAL';
 
   // Find live data points around current hour
-  const currentPoint = data.find((p) => Math.abs(p.hour - currentHourDecimal) < 0.6) || data[data.length - 1];
+  const currentPoint = data.find((p) => Math.abs(p.hour - activeHourDecimal) < 0.6) || data[data.length - 1];
 
   // Direct sensor power from STM32 hardware
   const rawPowerW = solar && solar.powerKw > 0
@@ -402,8 +446,38 @@ export const SolarPowerChart: React.FC<SolarPowerChartProps> = ({
     ? solar.humidityPct 
     : (currentPoint?.humidity ?? 52);
 
-  // Only display generated data up to current time slot; future hours do NOT appear until data is generated!
-  const generatedData = data.filter((p) => p.hour <= currentHourDecimal + 0.25);
+  // Dynamic real-time dataset: strictly past half-hour intervals + real-time minute live point!
+  // Future hours (e.g. 2:00 PM, 3:00 PM) NEVER appear until the clock reaches them!
+  const generatedData = React.useMemo(() => {
+    if (activeHourDecimal < 6) {
+      return data.slice(0, 1);
+    }
+    if (activeHourDecimal >= 18) {
+      return data;
+    }
+
+    // Historical standard 30-min intervals strictly in the past
+    const pastPoints = data.filter((p) => p.hour < activeHourDecimal && p.time !== currentTimeStr);
+
+    // Current live data point at exact real-time minute (e.g. 13:55)
+    const livePoint: HourlyGenerationPoint = {
+      time: currentTimeStr,
+      hour: activeHourDecimal,
+      trackingKw: Number((liveTrackingW / 1000).toFixed(3)),
+      fixedKw: Number((liveFixedW / 1000).toFixed(3)),
+      trackingW: liveTrackingW,
+      fixedW: liveFixedW,
+      motorW: 0,
+      sunElevation: Math.max(0, Math.round(Math.sin(Math.max(0, Math.min(1, (activeHourDecimal - 6) / 12)) * Math.PI) * 72)),
+      solarVoltage: livePvVolt,
+      battVoltage: liveBattVolt,
+      solarCurrent: Number(liveCurrent.toFixed(2)),
+      temperature: Number(liveTemp.toFixed(1)),
+      humidity: Number(liveHum.toFixed(0)),
+    };
+
+    return [...pastPoints, livePoint];
+  }, [data, activeHourDecimal, currentTimeStr, liveTrackingW, liveFixedW, livePvVolt, liveBattVolt, liveCurrent, liveTemp, liveHum]);
 
   // ===========================================================================
   // RENDER: Dedicated Power Chart (Large High-Resolution Canvas)
@@ -442,7 +516,7 @@ export const SolarPowerChart: React.FC<SolarPowerChartProps> = ({
                 stroke="#f59e0b"
                 strokeDasharray="4 4"
                 strokeWidth={1.5}
-                label={{ value: 'LIVE NOW', position: 'top', fill: '#f59e0b', fontSize: 11, fontWeight: 'bold' }}
+                label={{ value: `LIVE NOW (${current12hStr})`, position: 'top', fill: '#f59e0b', fontSize: 11, fontWeight: 'bold' }}
               />
             )}
 
@@ -517,7 +591,7 @@ export const SolarPowerChart: React.FC<SolarPowerChartProps> = ({
               stroke="#3b82f6"
               strokeDasharray="4 4"
               strokeWidth={1.5}
-              label={{ value: 'LIVE NOW', position: 'top', fill: '#2563eb', fontSize: 11, fontWeight: 'bold' }}
+              label={{ value: `LIVE NOW (${current12hStr})`, position: 'top', fill: '#2563eb', fontSize: 11, fontWeight: 'bold' }}
             />
           )}
           <ReReferenceLine y={14.4} stroke="#10b981" strokeDasharray="3 3" strokeWidth={1.5} label={{ value: '14.4V Float Charge', position: 'right', fill: '#059669', fontSize: 10, fontWeight: 'bold' }} />
@@ -576,7 +650,7 @@ export const SolarPowerChart: React.FC<SolarPowerChartProps> = ({
               stroke="#06b6d4"
               strokeDasharray="4 4"
               strokeWidth={1.5}
-              label={{ value: 'LIVE NOW', position: 'top', fill: '#0891b2', fontSize: 11, fontWeight: 'bold' }}
+              label={{ value: `LIVE NOW (${current12hStr})`, position: 'top', fill: '#0891b2', fontSize: 11, fontWeight: 'bold' }}
             />
           )}
           <ReArea
@@ -624,7 +698,7 @@ export const SolarPowerChart: React.FC<SolarPowerChartProps> = ({
               stroke="#f59e0b"
               strokeDasharray="4 4"
               strokeWidth={1.5}
-              label={{ value: 'LIVE NOW', position: 'top', fill: '#f59e0b', fontSize: 11, fontWeight: 'bold' }}
+              label={{ value: `LIVE NOW (${current12hStr})`, position: 'top', fill: '#f59e0b', fontSize: 11, fontWeight: 'bold' }}
             />
           )}
           <ReReferenceLine y={45} stroke="#ef4444" strokeDasharray="3 3" strokeWidth={1.5} label={{ value: '45°C Thermal Warning', position: 'right', fill: '#dc2626', fontSize: 10, fontWeight: 'bold' }} />
@@ -702,7 +776,7 @@ export const SolarPowerChart: React.FC<SolarPowerChartProps> = ({
               stroke="#f59e0b"
               strokeDasharray="4 4"
               strokeWidth={1.5}
-              label={{ value: 'NOW', position: 'top', fill: '#f59e0b', fontSize: 10, fontWeight: 'bold' }}
+              label={{ value: `NOW (${current12hStr})`, position: 'top', fill: '#f59e0b', fontSize: 10, fontWeight: 'bold' }}
             />
           )}
 
