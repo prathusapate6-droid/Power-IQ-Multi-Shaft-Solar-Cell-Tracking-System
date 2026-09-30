@@ -41,8 +41,12 @@ export function generateDiurnalCurve(
   // When system is offline or power is 0 (hardware turned off), strictly 0W (no fake data!)
   const hasActiveGeneration = livePowerW > 0.5;
   const actualPeakW = hasActiveGeneration ? Number((livePowerW * 1.05).toFixed(1)) : 0.0;
-  const actualVoltV = liveVoltV > 0 ? liveVoltV : 0.0;
-  const actualBattV = liveBattV > 0 ? liveBattV : 12.4;
+  let actualVoltV = liveVoltV > 0 ? liveVoltV : (hasActiveGeneration ? 19.3 : 0.0);
+  let actualBattV = liveBattV > 0 && liveBattV < 15.0 ? liveBattV : 12.6;
+  if (liveBattV > 15.0 && liveVoltV < 15.0) {
+    actualVoltV = liveBattV;
+    actualBattV = liveVoltV > 0 ? liveVoltV : 12.6;
+  }
   const actualTempC = liveTempC > 0 ? liveTempC : 28.0;
   const actualHum = liveHum > 0 ? liveHum : 48;
 

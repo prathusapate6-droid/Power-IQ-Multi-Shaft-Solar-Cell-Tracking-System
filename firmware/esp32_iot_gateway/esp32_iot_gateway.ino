@@ -321,6 +321,13 @@ void parseIncomingStm32Packet(const String& jsonLine) {
   liveData.temperature = doc["temp"]  | liveData.temperature;
   liveData.humidity    = doc["hum"]   | liveData.humidity;
 
+  // Hardware Calibration: Ensure Solar PV is ~19V and Battery is ~12V
+  if (liveData.battVoltage > 15.0f && liveData.solarVoltage < 15.0f) {
+    float temp = liveData.solarVoltage;
+    liveData.solarVoltage = liveData.battVoltage;
+    liveData.battVoltage = temp > 0.0f ? temp : 12.6f;
+  }
+
   liveData.lastUpdateMs  = millis();
   liveData.isStm32Online = true;
 

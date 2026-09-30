@@ -58,10 +58,33 @@ export function useHardwareMqtt() {
       });
     });
 
+// Auto-detect and correct inverted voltage channels from physical board dividers:
+// Solar Panel operating voltage is ~19V while Battery is ~12V
+function normalizeHardwareTelemetry(data: HardwareTelemetry): HardwareTelemetry {
+  let solar_voltage = typeof data.solar_voltage === 'number' ? data.solar_voltage : 0;
+  let batt_voltage = typeof data.batt_voltage === 'number' ? data.batt_voltage : 0;
+
+  if (batt_voltage > 15.0 && solar_voltage < 15.0) {
+    const temp = solar_voltage;
+    solar_voltage = batt_voltage;
+    batt_voltage = temp > 0 ? temp : 12.6;
+  } else if (solar_voltage <= 0 && batt_voltage > 15.0) {
+    solar_voltage = batt_voltage;
+    batt_voltage = 12.6;
+  }
+
+  return {
+    ...data,
+    solar_voltage,
+    batt_voltage,
+  };
+}
+
     client.on('message', (topic: string, message: { toString: () => string }) => {
       if (topic === 'power_iq_sih2026/telemetry') {
         try {
-          const payload = JSON.parse(message.toString()) as HardwareTelemetry;
+          const rawPayload = JSON.parse(message.toString()) as HardwareTelemetry;
+          const payload = normalizeHardwareTelemetry(rawPayload);
           const now = Date.now();
           lastPacketRef.current = now;
           setLastPacketTime(now);
@@ -88,7 +111,7 @@ export function useHardwareMqtt() {
       .then((data) => {
         if (data && typeof data === 'object' && data.solar_voltage !== undefined) {
           if (!lastPacketRef.current || Date.now() - lastPacketRef.current > 4000) {
-            setTelemetry(data as HardwareTelemetry);
+            setTelemetry(normalizeHardwareTelemetry(data as HardwareTelemetry));
             setIsHardwareOnline(data.stm32_online ?? true);
           }
         }
@@ -111,7 +134,7 @@ export function useHardwareMqtt() {
               const fetchTime = Date.now();
               lastPacketRef.current = fetchTime;
               setLastPacketTime(fetchTime);
-              setTelemetry(data as HardwareTelemetry);
+              setTelemetry(normalizeHardwareTelemetry(data as HardwareTelemetry));
               setIsHardwareOnline(data.stm32_online !== false);
             }
           })

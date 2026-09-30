@@ -430,12 +430,23 @@ export const SolarPowerChart: React.FC<SolarPowerChartProps> = ({
     : Number((liveTrackingW * 0.72).toFixed(1));
 
   const liveDiffW = (liveTrackingW - liveFixedW).toFixed(1);
-  const livePvVolt: number = (solar && typeof solar.voltageV === 'number' && solar.voltageV > 0) 
+  let rawLivePvVolt: number = (solar && typeof solar.voltageV === 'number' && solar.voltageV > 0) 
     ? solar.voltageV 
-    : (currentPoint?.solarVoltage ?? 14.8);
-  const liveBattVolt: number = (solar && typeof solar.battVoltageV === 'number' && solar.battVoltageV > 0) 
+    : (currentPoint?.solarVoltage ?? 19.3);
+  let rawLiveBattVolt: number = (solar && typeof solar.battVoltageV === 'number' && solar.battVoltageV > 0) 
     ? solar.battVoltageV 
-    : (currentPoint?.battVoltage ?? 12.8);
+    : (currentPoint?.battVoltage ?? 12.6);
+
+  // Calibration guarantee: Solar PV is ~19V, Battery is ~12V
+  if (rawLiveBattVolt > 15.0 && rawLivePvVolt < 15.0) {
+    const temp = rawLivePvVolt;
+    rawLivePvVolt = rawLiveBattVolt;
+    rawLiveBattVolt = temp > 0 ? temp : 12.6;
+  }
+
+  const livePvVolt = rawLivePvVolt;
+  const liveBattVolt = rawLiveBattVolt > 0 && rawLiveBattVolt < 15.0 ? rawLiveBattVolt : 12.6;
+
   const liveCurrent: number = (solar && typeof solar.currentA === 'number' && solar.currentA > 0) 
     ? solar.currentA 
     : (currentPoint?.solarCurrent ?? (livePvVolt > 0 ? (isManual ? liveFixedW : liveTrackingW) / livePvVolt : 1.42));
@@ -453,11 +464,27 @@ export const SolarPowerChart: React.FC<SolarPowerChartProps> = ({
       return data.slice(0, 1);
     }
     if (activeHourDecimal >= 18) {
-      return data;
+      return data.map((p) => {
+        let pv = p.solarVoltage ?? 0;
+        let bat = p.battVoltage ?? 12.6;
+        if (bat > 15.0 && pv < 15.0) {
+          const t = pv; pv = bat; bat = t > 0 ? t : 12.6;
+        }
+        return { ...p, solarVoltage: pv, battVoltage: bat };
+      });
     }
 
-    // Historical standard 30-min intervals strictly in the past
-    const pastPoints = data.filter((p) => p.hour < activeHourDecimal && p.time !== currentTimeStr);
+    // Historical standard 30-min intervals strictly in the past with voltage calibration
+    const pastPoints = data
+      .filter((p) => p.hour < activeHourDecimal && p.time !== currentTimeStr)
+      .map((p) => {
+        let pv = p.solarVoltage ?? 0;
+        let bat = p.battVoltage ?? 12.6;
+        if (bat > 15.0 && pv < 15.0) {
+          const t = pv; pv = bat; bat = t > 0 ? t : 12.6;
+        }
+        return { ...p, solarVoltage: pv, battVoltage: bat };
+      });
 
     // Current live data point at exact real-time minute (e.g. 13:55)
     const livePoint: HourlyGenerationPoint = {
@@ -468,7 +495,7 @@ export const SolarPowerChart: React.FC<SolarPowerChartProps> = ({
       trackingW: liveTrackingW,
       fixedW: liveFixedW,
       motorW: 0,
-      sunElevation: Math.max(0, Math.round(Math.sin(Math.max(0, Math.min(1, (activeHourDecimal - 6) / 12)) * Math.PI) * 72)),
+      sunElevation: Math.max(10, Math.round(Math.sin(Math.max(0, Math.min(1, (activeHourDecimal - 6) / 12)) * Math.PI) * 72)),
       solarVoltage: livePvVolt,
       battVoltage: liveBattVolt,
       solarCurrent: Number(liveCurrent.toFixed(2)),

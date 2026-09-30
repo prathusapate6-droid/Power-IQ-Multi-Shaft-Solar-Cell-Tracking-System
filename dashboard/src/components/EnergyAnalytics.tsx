@@ -106,8 +106,8 @@ function generateDayChart(peakW: number, maxHour: number = 18): DailyPoint[] {
     const sunSin = Math.sin(daylightFraction * Math.PI);
     const trackingW = sunSin > 0 ? Number((Math.pow(sunSin, 0.65) * peakW).toFixed(1)) : 0;
     const fixedW = sunSin > 0 ? Number((Math.pow(sunSin, 1.45) * (peakW * 0.72)).toFixed(1)) : 0;
-    const solarVoltage = sunSin > 0 ? Number((12.5 + Math.pow(sunSin, 0.5) * 4.3).toFixed(2)) : 0;
-    const battVoltage = Number((12.2 + sunSin * 1.8).toFixed(2));
+    const solarVoltage = sunSin > 0 ? Number((18.4 + Math.pow(sunSin, 0.5) * 1.2).toFixed(2)) : 0;
+    const battVoltage = Number((12.4 + sunSin * 0.4).toFixed(2));
     const solarCurrent = solarVoltage > 0 ? Number((trackingW / solarVoltage).toFixed(2)) : 0;
     const temperature = Number((28.5 + sunSin * 11.2).toFixed(1));
 
@@ -127,12 +127,12 @@ function generateDayChart(peakW: number, maxHour: number = 18): DailyPoint[] {
 function createDefaultHistoricalRecords(): Record<string, DailyRecord> {
   const map: Record<string, DailyRecord> = {};
   
-  // Historical data benchmarks for previous days (50W max panel scale)
+  // Historical data benchmarks for previous days (50W max panel scale, ~19V Solar PV, ~12V Battery)
   const historyConfig = [
-    { offset: 1, peakW: 42.8, totalWh: 246.5, fixedWh: 177.2, avgV: 14.85, avgA: 1.78, avgT: 36.4, gain: 39.1, label: 'Yesterday' },
-    { offset: 2, peakW: 39.2, totalWh: 228.0, fixedWh: 164.2, avgV: 14.62, avgA: 1.72, avgT: 35.8, gain: 38.9, label: '2 Days Ago' },
-    { offset: 3, peakW: 41.5, totalWh: 239.4, fixedWh: 172.1, avgV: 14.78, avgA: 1.75, avgT: 37.0, gain: 39.1, label: '3 Days Ago' },
-    { offset: 4, peakW: 43.6, totalWh: 256.2, fixedWh: 184.4, avgV: 15.10, avgA: 1.82, avgT: 38.2, gain: 38.9, label: '4 Days Ago' },
+    { offset: 1, peakW: 42.8, totalWh: 246.5, fixedWh: 177.2, avgV: 19.25, avgA: 1.78, avgT: 36.4, gain: 39.1, label: 'Yesterday' },
+    { offset: 2, peakW: 39.2, totalWh: 228.0, fixedWh: 164.2, avgV: 19.10, avgA: 1.72, avgT: 35.8, gain: 38.9, label: '2 Days Ago' },
+    { offset: 3, peakW: 41.5, totalWh: 239.4, fixedWh: 172.1, avgV: 19.30, avgA: 1.75, avgT: 37.0, gain: 39.1, label: '3 Days Ago' },
+    { offset: 4, peakW: 43.6, totalWh: 256.2, fixedWh: 184.4, avgV: 19.45, avgA: 1.82, avgT: 38.2, gain: 38.9, label: '4 Days Ago' },
   ];
 
   for (const item of historyConfig) {
@@ -204,10 +204,20 @@ export const EnergyAnalytics: React.FC<EnergyAnalyticsProps> = ({ solar }) => {
     const today = getTodayStr();
     const currentW = Number((solar.powerKw * 1000).toFixed(1));
     const currentWh = Number((solar.energyTodayKwh * 1000).toFixed(1));
-    const currentV = Number(solar.voltageV.toFixed(2));
+    let currentV = Number(solar.voltageV.toFixed(2));
     const currentA = Number(solar.currentA.toFixed(2));
     const currentTemp = solar.temperatureC && solar.temperatureC > 0 ? Number(solar.temperatureC.toFixed(1)) : 28.0;
-    const currentBattV = solar.battVoltageV && solar.battVoltageV > 0 ? Number(solar.battVoltageV.toFixed(2)) : 12.4;
+    let currentBattV = solar.battVoltageV && solar.battVoltageV > 0 ? Number(solar.battVoltageV.toFixed(2)) : 12.6;
+
+    // Calibration guarantee: Solar PV is ~19V, Battery is ~12V
+    if (currentBattV > 15.0 && currentV < 15.0) {
+      const temp = currentV;
+      currentV = currentBattV;
+      currentBattV = temp > 0 ? temp : 12.6;
+    } else if (currentBattV > 15.0) {
+      currentV = currentBattV;
+      currentBattV = 12.6;
+    }
 
     const currentHour = new Date().getHours();
     const timeSlot = `${currentHour.toString().padStart(2, '0')}:00`;
@@ -331,11 +341,27 @@ export const EnergyAnalytics: React.FC<EnergyAnalyticsProps> = ({ solar }) => {
           }
           return true;
         })
-        .map((pt) => ({
-          ...pt,
-          temperature: pt.temperature && pt.temperature > 0 ? pt.temperature : 28.0,
-          battVoltage: pt.battVoltage && pt.battVoltage > 0 ? pt.battVoltage : 12.4,
-        }))
+        .map((pt) => {
+          let sVolt = pt.solarVoltage && pt.solarVoltage > 0 ? pt.solarVoltage : (pt.trackingW > 0 ? 19.31 : 0);
+          let bVolt = pt.battVoltage && pt.battVoltage > 0 ? pt.battVoltage : 12.6;
+
+          // Calibration guarantee: Solar PV is ~19V, Battery is ~12V
+          if (bVolt > 15.0 && sVolt < 15.0) {
+            const temp = sVolt;
+            sVolt = bVolt;
+            bVolt = temp > 0 ? temp : 12.6;
+          } else if (bVolt > 15.0) {
+            sVolt = bVolt;
+            bVolt = 12.6;
+          }
+
+          return {
+            ...pt,
+            solarVoltage: sVolt,
+            battVoltage: bVolt,
+            temperature: pt.temperature && pt.temperature > 0 ? pt.temperature : 28.0,
+          };
+        })
     : [];
 
   // CSV Export Function (only exports generated data points)

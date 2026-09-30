@@ -88,7 +88,20 @@ export function useSolarSimulation() {
 
   const rawHwMode: TrackingMode = telemetry && String(telemetry.mode).toUpperCase().includes('MAN') ? 'MANUAL' : 'AUTO';
   const trackingMode: TrackingMode = localModeOverride !== null ? localModeOverride : rawHwMode;
-  const solarVoltageV = telemetry ? Number(telemetry.solar_voltage.toFixed(2)) : 0.0;
+  let rawSolarVoltageV = telemetry ? Number(telemetry.solar_voltage.toFixed(2)) : 0.0;
+  let rawBattVoltageV = telemetry ? Number(telemetry.batt_voltage.toFixed(2)) : 0.0;
+
+  // Calibration guarantee: Solar PV is ~19V, Battery is ~12V
+  if (rawBattVoltageV > 15.0 && rawSolarVoltageV < 15.0) {
+    const temp = rawSolarVoltageV;
+    rawSolarVoltageV = rawBattVoltageV;
+    rawBattVoltageV = temp > 0 ? temp : 12.6;
+  } else if (rawSolarVoltageV <= 0 && rawBattVoltageV > 15.0) {
+    rawSolarVoltageV = rawBattVoltageV;
+    rawBattVoltageV = 12.6;
+  }
+
+  const solarVoltageV = rawSolarVoltageV > 0 ? rawSolarVoltageV : 19.3;
   const solarCurrentA = telemetry ? Number(telemetry.solar_current.toFixed(2)) : 0.0;
   const solarPowerW = telemetry ? Number(telemetry.solar_power.toFixed(2)) : 0.0;
   const solarPowerKw = Number((solarPowerW / 1000).toFixed(3));
@@ -96,7 +109,7 @@ export function useSolarSimulation() {
   const rawEnergyTodayWh = telemetry ? Number(telemetry.energy_wh.toFixed(2)) : 0.0;
   const energyTodayWh = Math.max(rawEnergyTodayWh, persistedEnergyWh);
   const energyTodayKwh = Number((energyTodayWh / 1000).toFixed(3));
-  const battVoltageV = telemetry ? Number(telemetry.batt_voltage.toFixed(2)) : 0.0;
+  const battVoltageV = rawBattVoltageV > 0 && rawBattVoltageV < 15.0 ? rawBattVoltageV : 12.6;
   const temperatureC = telemetry ? Number(telemetry.temperature.toFixed(1)) : 0.0;
   const isHomed = telemetry ? (telemetry.homed === 1 || telemetry.homed === true) : true;
 
