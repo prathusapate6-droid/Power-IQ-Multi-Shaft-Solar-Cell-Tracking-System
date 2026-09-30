@@ -90,8 +90,24 @@ export interface AiDiagnostics {
   hallDatumStatus: 'ALIGNED' | 'CALIBRATION_DUE';
   cleaningRecommended: boolean;
   aiInsightText: string;
-  activeScenario?: 'NONE' | 'DUST_SOILING' | 'SHORT_CIRCUIT' | 'THERMAL_OVERHEAT' | 'LOW_BATTERY';
+  activeScenario?: 'NONE' | 'DUST_SOILING' | 'MECHANICAL_JAM' | 'SHORT_CIRCUIT' | 'THERMAL_OVERHEAT' | 'LOW_BATTERY' | 'NIGHT_SETTLE';
   faultInjected: boolean;
+  // Mathematical In-House AI Telemetry Vectors
+  cleannessRatio: number;         // 0 - 100% Cleanness index
+  expectedPowerW: number;         // Theoretical power from LDR & Cosine tilt
+  actualPowerW: number;           // Instantaneous measured electrical power
+  soilingLossPct: number;         // Suppressed yield loss percentage
+  mechanicalStressPct: number;    // Motor current vs 2.05A jam limit
+  thermalMarginPct: number;       // Heatsink/ambient margin before 48°C limit
+  diagnosedState: 'NOMINAL' | 'SOILED_PANEL' | 'MECHANICAL_JAM' | 'BATTERY_UNDERVOLTAGE' | 'THERMAL_OVERHEAT' | 'NIGHT_HOLD';
+  stateConfidence: {
+    nominal: number;
+    soiled: number;
+    jam: number;
+    undervoltage: number;
+    overheat: number;
+    night: number;
+  };
 }
 
 export interface SystemAlert {

@@ -389,7 +389,7 @@ void pushTelemetryToFirebase() {
   http.begin(url);
   http.addHeader("Content-Type", "application/json");
 
-  StaticJsonDocument<256> doc;
+  StaticJsonDocument<320> doc;
   doc["angle"]         = liveData.angle;
   doc["pot_angle"]     = liveData.potAngle;
   doc["mode"]          = liveData.mode;
@@ -400,6 +400,7 @@ void pushTelemetryToFirebase() {
   doc["temperature"]   = liveData.temperature;
   doc["humidity"]      = liveData.humidity;
   doc["energy_wh"]     = liveData.energyYieldWh;
+  doc["stm32_online"]  = liveData.isStm32Online;
   doc["timestamp"]     = millis();
 
   String payload;

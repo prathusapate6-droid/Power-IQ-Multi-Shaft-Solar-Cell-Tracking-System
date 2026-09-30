@@ -98,7 +98,8 @@ export function useHardwareMqtt() {
     // 2. Hardware watchdog + Firebase Cloud fallback
     const watchdogTimer = setInterval(() => {
       const now = Date.now();
-      if (lastPacketRef.current > 0 && now - lastPacketRef.current > 6000) {
+      // Only declare hardware offline if no packet from MQTT or Firebase for > 12 seconds
+      if (lastPacketRef.current > 0 && now - lastPacketRef.current > 12000) {
         setIsHardwareOnline(false);
       }
       // If no recent MQTT packet in last 3.5 seconds, fetch live state from Firebase RTDB
@@ -107,8 +108,11 @@ export function useHardwareMqtt() {
           .then((res) => res.json())
           .then((data) => {
             if (data && typeof data === 'object' && data.solar_voltage !== undefined) {
+              const fetchTime = Date.now();
+              lastPacketRef.current = fetchTime;
+              setLastPacketTime(fetchTime);
               setTelemetry(data as HardwareTelemetry);
-              setIsHardwareOnline(data.stm32_online ?? true);
+              setIsHardwareOnline(data.stm32_online !== false);
             }
           })
           .catch(() => {});

@@ -35,6 +35,8 @@ export const App: React.FC = () => {
     isHardwareOnline,
     isMqttConnected,
     sendCommand,
+    activeScenario,
+    setActiveScenario,
   } = useSolarSimulation();
 
   return (
@@ -99,6 +101,8 @@ export const App: React.FC = () => {
               ai={ai}
               alerts={alerts}
               isHardwareOnline={isHardwareOnline}
+              activeScenario={activeScenario}
+              onSelectScenario={setActiveScenario}
             />
             <SystemArchitecture />
           </div>
