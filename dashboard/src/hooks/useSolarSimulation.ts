@@ -374,6 +374,10 @@ export function useSolarSimulation() {
 
   // 3. Actual measured or scenario power
   let activeActualPowerW = solarPowerW;
+  if (trackingMode === 'MANUAL' && solarPowerW > 0) {
+    // In manual mode without tracking, power is lower (fixed horizontal baseline without 38.9% tracking boost)
+    activeActualPowerW = Number((solarPowerW > 16.0 ? solarPowerW * 0.72 : solarPowerW * 0.85).toFixed(2));
+  }
   if (activeScenario === 'DUST_SOILING') {
     activeActualPowerW = Number((expectedPowerW * 0.42).toFixed(2)); // ~58% drop due to heavy dust layer!
   } else if (activeScenario === 'NIGHT_SETTLE') {

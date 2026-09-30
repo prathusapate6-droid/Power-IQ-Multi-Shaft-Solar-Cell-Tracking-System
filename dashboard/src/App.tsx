@@ -184,6 +184,7 @@ export const App: React.FC = () => {
                 currentHourDecimal={hourDecimal}
                 trackingMode={trackingMode}
                 onToggleMode={handleAutoToggle}
+                solar={solar}
               />
             </div>
           </div>
