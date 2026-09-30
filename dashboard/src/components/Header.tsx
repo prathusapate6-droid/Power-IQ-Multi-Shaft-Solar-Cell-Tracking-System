@@ -54,8 +54,8 @@ export const Header: React.FC<HeaderProps> = ({
                 <span className="text-lg font-black tracking-tight text-slate-900">
                   POWER<span className="text-amber-500">IQ</span>
                 </span>
-                <span className="text-[11px] font-semibold text-slate-400 border-l border-slate-200 pl-2 hidden sm:inline">
-                  Solar Tracking SCADA
+                <span className="text-[11px] font-semibold text-slate-500 border-l border-slate-200 pl-2 hidden sm:inline">
+                  STM32 Multi-Shaft Solar Tracking System
                 </span>
               </div>
             </div>

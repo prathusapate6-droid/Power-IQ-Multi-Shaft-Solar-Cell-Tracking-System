@@ -71,6 +71,8 @@ export const App: React.FC = () => {
                 <SolarPowerChart
                   data={diurnalData}
                   currentHourDecimal={hourDecimal}
+                  trackingMode={trackingMode}
+                  onToggleMode={handleAutoToggle}
                 />
               </div>
               <div className="lg:col-span-4">

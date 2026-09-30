@@ -33,7 +33,7 @@ export const MultiShaftStatus: React.FC<MultiShaftStatusProps> = ({
               <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
                 <span>Multi-Shaft Mechanical Synchronization</span>
                 <span className="text-xs bg-emerald-100 text-emerald-800 font-semibold px-2 py-0.5 rounded border border-emerald-300">
-                  8 Parallel Shafts
+                  10 Parallel Shafts
                 </span>
               </h2>
               <p className="text-xs text-slate-500">
@@ -69,7 +69,7 @@ export const MultiShaftStatus: React.FC<MultiShaftStatusProps> = ({
         </div>
 
         {/* Isometric / Side-view PV Slats */}
-        <div className="py-3 px-2 grid grid-cols-4 sm:grid-cols-8 gap-3 sm:gap-2">
+        <div className="py-3 px-2 grid grid-cols-5 sm:grid-cols-10 gap-2">
           {shafts.map((shaft) => {
             const isWarn = shaft.status === 'WARN_DEVIATION';
             return (
@@ -192,9 +192,9 @@ export const MultiShaftStatus: React.FC<MultiShaftStatusProps> = ({
       <div className="mt-3 text-[11px] text-slate-500 flex items-center justify-between border-t border-slate-100 pt-2">
         <span className="flex items-center gap-1">
           <Info className="w-3 h-3 text-slate-400" />
-          Individual shafts mount rows of solar cells; worm gear eliminates need for 8 separate servo motors.
+          Individual shafts mount rows of solar cells; worm gear eliminates need for 10 separate servo motors.
         </span>
-        <span className="font-mono text-slate-400">Total Cell Rows: 8 | Transmission Ratio: 40:1</span>
+        <span className="font-mono text-slate-400">Total Cell Rows: 10 | Transmission Ratio: 40:1</span>
       </div>
     </div>
   );

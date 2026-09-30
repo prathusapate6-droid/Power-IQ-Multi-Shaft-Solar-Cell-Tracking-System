@@ -55,8 +55,8 @@
 // =============================================================================
 // 1. NETWORK & CLOUD CONFIGURATION (UPDATE YOUR CREDENTIALS HERE!)
 // =============================================================================
-const char* WIFI_SSID     = "POWER_IQ_WIFI";      // Your WiFi Network Name
-const char* WIFI_PASSWORD = "SolarTracking2026";  // Your WiFi Password
+const char* WIFI_SSID     = "Home Network";      // Your WiFi Network Name
+const char* WIFI_PASSWORD = "qwertyuiop";  // Your WiFi Password
 
 // Fallback SoftAP if WiFi router is unavailable
 const char* AP_SSID       = "POWER_IQ_GATEWAY";   // Hotspot Name (Default IP: 192.168.4.1)
