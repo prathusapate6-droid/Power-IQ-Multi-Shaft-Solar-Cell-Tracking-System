@@ -193,7 +193,11 @@ export const App: React.FC = () => {
         {/* Tab 2: Date-Wise Generation Analytics */}
         {activeTab === 'analytics' && (
           <div className="space-y-6">
-            <EnergyAnalytics solar={solar} />
+            <EnergyAnalytics 
+              solar={solar} 
+              diurnalData={diurnalData}
+              trackingMode={trackingMode}
+            />
           </div>
         )}
 
