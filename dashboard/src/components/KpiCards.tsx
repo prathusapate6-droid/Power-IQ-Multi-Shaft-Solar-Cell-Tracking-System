@@ -198,9 +198,9 @@ export const KpiCards: React.FC<KpiCardsProps> = ({
         </div>
       </div>
 
-      {/* 6. Real-Time Tracking vs Without Tracking Comparison Strip */}
-      <div className="col-span-1 sm:col-span-2 lg:col-span-5 bg-gradient-to-r from-slate-900 via-slate-800 to-indigo-950 rounded-2xl p-4 sm:p-5 text-white shadow-md border border-slate-700/60">
-        <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-700/80">
+      {/* 6. Real-Time Tracking vs Without Tracking Comparison Strip (Clean White Theme) */}
+      <div className="col-span-1 sm:col-span-2 lg:col-span-5 bg-white rounded-2xl p-5 border border-slate-200/90 shadow-xs">
+        <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-100">
           <div className="flex items-center gap-2">
             <span className="flex h-3 w-3 relative">
               <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
@@ -210,82 +210,82 @@ export const KpiCards: React.FC<KpiCardsProps> = ({
                 isManual ? 'bg-amber-500' : 'bg-emerald-500'
               }`}></span>
             </span>
-            <span className="text-xs font-mono font-bold tracking-wider uppercase text-slate-300">
-              Real-Time Mode Comparison:
+            <span className="text-xs font-mono font-bold tracking-wider uppercase text-slate-600">
+              Live Hardware Operational Comparison:
             </span>
-            <span className={`px-2.5 py-0.5 rounded-full text-xs font-black uppercase ${
+            <span className={`px-2.5 py-0.5 rounded-full text-xs font-black uppercase border ${
               isManual 
-                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40' 
-                : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                ? 'bg-amber-50 text-amber-800 border-amber-300' 
+                : 'bg-emerald-50 text-emerald-800 border-emerald-300'
             }`}>
               {isManual ? '🕹️ Operating Without Tracking (Manual 0°)' : '⚡ Operating With Tracking (10-Shaft Active Synchronization)'}
             </span>
           </div>
-          <div className="text-xs font-mono text-slate-300">
-            System Harvest Boost: <strong className="text-emerald-400 font-bold">+38.9% With Tracking</strong>
+          <div className="text-xs font-mono text-slate-500">
+            Performance Gain: <strong className="text-emerald-700 font-bold">+38.9% With Tracking</strong>
           </div>
         </div>
 
-        {/* 3 Comparison Columns: Without Tracking vs With Tracking vs Difference */}
+        {/* 3 Clean Comparison Columns: Without Tracking vs With Tracking vs Difference */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-3 font-mono text-xs">
           {/* Col 1: Without Tracking (Manual) */}
-          <div className={`p-3 rounded-xl border transition ${
-            isManual ? 'bg-amber-950/40 border-amber-500/70 ring-2 ring-amber-500/50' : 'bg-slate-800/60 border-slate-700'
+          <div className={`p-4 rounded-xl border transition ${
+            isManual ? 'bg-amber-50/70 border-2 border-amber-400 ring-2 ring-amber-100' : 'bg-slate-50 border border-slate-200'
           }`}>
-            <div className="text-[11px] font-bold text-amber-400 uppercase flex items-center justify-between">
+            <div className="text-[11px] font-bold text-amber-800 uppercase flex items-center justify-between">
               <span>Without Tracking (Manual)</span>
               {isManual && <span className="text-[9px] bg-amber-500 text-slate-950 font-black px-1.5 py-0.5 rounded">ACTIVE NOW</span>}
             </div>
-            <div className="text-2xl font-black text-white mt-1">
-              {fixedW.toFixed(1)} <span className="text-sm font-normal text-amber-400">W</span>
+            <div className="text-3xl font-black text-slate-900 mt-1">
+              {fixedW.toFixed(1)} <span className="text-sm font-bold text-amber-600">W</span>
             </div>
-            <div className="flex justify-between text-[11px] text-slate-300 mt-1.5 pt-1.5 border-t border-slate-700/60">
+            <div className="flex justify-between text-[11px] text-slate-500 mt-2 pt-2 border-t border-slate-200/80">
               <span>Solar Current:</span>
-              <strong className="text-amber-300">{fixedCurrentA.toFixed(2)} A ({(fixedCurrentA * 1000).toFixed(0)} mA)</strong>
+              <strong className="text-amber-800">{fixedCurrentA.toFixed(2)} A ({(fixedCurrentA * 1000).toFixed(0)} mA)</strong>
             </div>
-            <div className="flex justify-between text-[11px] text-slate-400 mt-0.5">
+            <div className="flex justify-between text-[11px] text-slate-500 mt-0.5">
               <span>Orientation:</span>
-              <span className="text-slate-300">0.0° Stationary Horizontal</span>
+              <span className="text-slate-700 font-semibold">0.0° Stationary Horizontal</span>
             </div>
           </div>
 
           {/* Col 2: With Tracking (Auto) */}
-          <div className={`p-3 rounded-xl border transition ${
-            !isManual ? 'bg-emerald-950/40 border-emerald-500/70 ring-2 ring-emerald-500/50' : 'bg-slate-800/60 border-slate-700'
+          <div className={`p-4 rounded-xl border transition ${
+            !isManual ? 'bg-emerald-50/70 border-2 border-emerald-400 ring-2 ring-emerald-100' : 'bg-slate-50 border border-slate-200'
           }`}>
-            <div className="text-[11px] font-bold text-emerald-400 uppercase flex items-center justify-between">
+            <div className="text-[11px] font-bold text-emerald-800 uppercase flex items-center justify-between">
               <span>With Tracking (Auto)</span>
               {!isManual && <span className="text-[9px] bg-emerald-500 text-slate-950 font-black px-1.5 py-0.5 rounded">ACTIVE NOW</span>}
             </div>
-            <div className="text-2xl font-black text-white mt-1">
-              {trackingW.toFixed(1)} <span className="text-sm font-normal text-emerald-400">W</span>
+            <div className="text-3xl font-black text-slate-900 mt-1">
+              {trackingW.toFixed(1)} <span className="text-sm font-bold text-emerald-600">W</span>
             </div>
-            <div className="flex justify-between text-[11px] text-slate-300 mt-1.5 pt-1.5 border-t border-slate-700/60">
+            <div className="flex justify-between text-[11px] text-slate-500 mt-2 pt-2 border-t border-slate-200/80">
               <span>Solar Current:</span>
-              <strong className="text-emerald-300">{trackingCurrentA.toFixed(2)} A ({(trackingCurrentA * 1000).toFixed(0)} mA)</strong>
+              <strong className="text-emerald-800">{trackingCurrentA.toFixed(2)} A ({(trackingCurrentA * 1000).toFixed(0)} mA)</strong>
             </div>
-            <div className="flex justify-between text-[11px] text-slate-400 mt-0.5">
+            <div className="flex justify-between text-[11px] text-slate-500 mt-0.5">
               <span>Orientation:</span>
-              <span className="text-emerald-300 font-bold">{tracking.actualShaftAngle > 0 ? `+${tracking.actualShaftAngle}` : tracking.actualShaftAngle}° Sun Vector</span>
+              <span className="text-emerald-700 font-bold">{tracking.actualShaftAngle > 0 ? `+${tracking.actualShaftAngle}` : tracking.actualShaftAngle}° Sun Vector</span>
             </div>
           </div>
 
           {/* Col 3: Difference / Farak (Gain) */}
-          <div className="p-3 rounded-xl bg-indigo-950/60 border border-indigo-500/60">
-            <div className="text-[11px] font-bold text-indigo-300 uppercase flex items-center justify-between">
+          <div className="p-4 rounded-xl bg-indigo-50/70 border-2 border-indigo-300 ring-2 ring-indigo-50">
+            <div className="text-[11px] font-bold text-indigo-900 uppercase flex items-center justify-between">
               <span>Difference / Farak (Gain)</span>
-              <span className="text-[9px] bg-indigo-500 text-white font-black px-1.5 py-0.5 rounded">+38.9% EXTRA</span>
+              <span className="text-[9px] bg-indigo-600 text-white font-black px-1.5 py-0.5 rounded">+38.9% EXTRA</span>
             </div>
-            <div className="text-2xl font-black text-emerald-400 mt-1">
-              +{gainWatts} <span className="text-sm font-normal text-emerald-300">Watts Extra</span>
+            <div className="text-3xl font-black text-emerald-700 mt-1">
+              +{gainWatts} <span className="text-sm font-bold text-emerald-600">Watts Extra</span>
             </div>
-            <div className="flex justify-between text-[11px] text-slate-300 mt-1.5 pt-1.5 border-t border-indigo-700/40">
+            <div className="flex justify-between text-[11px] text-slate-600 mt-2 pt-2 border-t border-indigo-200">
               <span>Current Boost:</span>
-              <strong className="text-emerald-300">+{gainCurrentA.toFixed(2)} A (+{(gainCurrentA * 1000).toFixed(0)} mA)</strong>
+              <strong className="text-indigo-800 font-bold">+{gainCurrentA.toFixed(2)} A (+{(gainCurrentA * 1000).toFixed(0)} mA)</strong>
             </div>
-            <div className="flex justify-between text-[11px] text-slate-300 mt-0.5">
+            <div className="flex justify-between text-[11px] text-slate-600 mt-0.5">
               <span>Performance Ratio:</span>
-              <strong className="text-indigo-200">1.389x Multiplier Boost</strong>
+              <strong className="text-indigo-900 font-bold">1.389x Generation Multiplier</strong>
             </div>
           </div>
         </div>

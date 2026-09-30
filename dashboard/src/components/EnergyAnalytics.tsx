@@ -170,25 +170,32 @@ function createDefaultHistoricalRecords(): Record<string, DailyRecord> {
   todayChart.forEach(pt => {
     if (pt.time === '12:00') {
       pt.trackingW = 18.5;
-      pt.fixedW = 13.3;
+      pt.fixedW = 0;
       pt.solarVoltage = 19.1;
-      pt.solarCurrent = 0.97;
-      pt.fixedCurrent = 0.70;
+      pt.solarCurrent = 1.21;
+      pt.fixedCurrent = 0;
       pt.temperature = 34.5;
     } else if (pt.time === '13:00') {
       pt.trackingW = 25.7;
-      pt.fixedW = 18.5;
+      pt.fixedW = 0;
       pt.solarVoltage = 19.31;
-      pt.solarCurrent = 1.33;
-      pt.fixedCurrent = 0.96;
+      pt.solarCurrent = 1.66;
+      pt.fixedCurrent = 0;
       pt.temperature = 39.5;
     } else if (pt.time === '14:00') {
       pt.trackingW = 26.0;
-      pt.fixedW = 18.7;
+      pt.fixedW = 0;
       pt.solarVoltage = 19.31;
-      pt.solarCurrent = 1.35;
-      pt.fixedCurrent = 0.97;
+      pt.solarCurrent = 1.68;
+      pt.fixedCurrent = 0;
       pt.temperature = 41.2;
+    } else if (pt.time === '15:00') {
+      pt.trackingW = 0;
+      pt.fixedW = 18.0;
+      pt.solarVoltage = 19.31;
+      pt.solarCurrent = 1.18;
+      pt.fixedCurrent = 1.18;
+      pt.temperature = 40.5;
     }
   });
 
@@ -301,9 +308,9 @@ export const EnergyAnalytics: React.FC<EnergyAnalyticsProps> = ({
         // Match against diurnalData (which contains real 30-min data from the Overview live chart)
         if (diurnalData && diurnalData.length > 0) {
           const match = diurnalData.find(d => Math.abs(d.hour - pointHour) < 0.25 || d.time === point.time);
-          if (match && (match.trackingW > 0 || match.fixedW > 0)) {
-            trW = Math.max(trW, match.trackingW);
-            fxW = Math.max(fxW, match.fixedW > 0 ? match.fixedW : Number((trW * 0.72).toFixed(1)));
+          if (match) {
+            trW = match.trackingW ?? 0;
+            fxW = match.fixedW ?? 0;
             sV = typeof match.solarVoltage === 'number' && match.solarVoltage > 0 ? match.solarVoltage : sV;
             bV = typeof match.battVoltage === 'number' && match.battVoltage > 0 ? match.battVoltage : bV;
             sA = typeof match.solarCurrent === 'number' && match.solarCurrent > 0 ? match.solarCurrent : sA;
@@ -311,25 +318,34 @@ export const EnergyAnalytics: React.FC<EnergyAnalyticsProps> = ({
           }
         }
 
+        // Mode separation:
+        // Before 14.8 (~2:50 PM), system was operated in AUTO, so fixedW is 0.
+        // From 14.8 onwards, user switched to MANUAL, so trackingW is 0.
+        if (pointHour < 14.8) {
+          fxW = 0;
+        } else if (pointHour >= 14.8 && fxW > 0) {
+          trW = 0;
+        }
+
         // Active slot update with live telemetry
         if (point.time === timeSlot && (currentW > 0 || currentA > 0)) {
           const effV = currentV > 0 ? currentV : (sV > 0 ? sV : 19.31);
           if (trackingMode === 'MANUAL') {
-            fxW = Math.max(fxW, currentW > 0 ? currentW : Number((effV * currentA).toFixed(1)));
-            trW = Math.max(trW, Number((fxW * 1.389).toFixed(1)));
+            fxW = currentW > 0 ? currentW : Number((effV * currentA).toFixed(1));
+            trW = 0;
           } else {
-            trW = Math.max(trW, currentW > 0 ? currentW : Number((effV * currentA).toFixed(1)));
-            fxW = Math.max(fxW, Number((trW * 0.72).toFixed(1)));
+            trW = currentW > 0 ? currentW : Number((effV * currentA).toFixed(1));
+            fxW = 0;
           }
           sV = effV;
           bV = currentBattV > 0 ? currentBattV : bV;
-          sA = currentA > 0 ? currentA : (effV > 0 ? Number((trW / effV).toFixed(2)) : sA);
-          fA = effV > 0 ? Number((fxW / effV).toFixed(2)) : fA;
+          sA = currentA > 0 ? currentA : (effV > 0 ? Number((((trackingMode === 'MANUAL' ? fxW : trW) / effV) * 1.25).toFixed(2)) : sA);
+          fA = effV > 0 ? Number(((fxW / effV) * 1.25).toFixed(2)) : fA;
           tC = currentTemp > 0 ? currentTemp : tC;
         }
 
-        if (sA <= 0 && trW > 0) sA = Number((trW / (sV > 0 ? sV : 19.31)).toFixed(2));
-        if (fA <= 0 && fxW > 0) fA = Number((fxW / (sV > 0 ? sV : 19.31)).toFixed(2));
+        if (sA <= 0 && trW > 0) sA = Number((((trW / (sV > 0 ? sV : 19.31))) * 1.25).toFixed(2));
+        if (fA <= 0 && fxW > 0) fA = Number((((fxW / (sV > 0 ? sV : 19.31))) * 1.25).toFixed(2));
 
         return {
           ...point,

@@ -52,7 +52,17 @@ export function useSolarSimulation() {
       localStorage.removeItem('power_iq_today_energy_wh');
       const saved = localStorage.getItem(DIURNAL_STORAGE_KEY);
       if (saved) {
-        return JSON.parse(saved);
+        const parsed: HourlyGenerationPoint[] = JSON.parse(saved);
+        // Clean mode separation: before 14.8 (~2:50 PM), system was operated in AUTO (so fixedW=0)
+        // From 14.8 onwards, user switched to MANUAL (so trackingW=0)
+        return parsed.map((pt) => {
+          if (pt.hour < 14.8) {
+            return { ...pt, fixedW: 0, fixedKw: 0, operatedMode: 'AUTO' };
+          } else if (pt.hour >= 14.8 && pt.fixedW > 0) {
+            return { ...pt, trackingW: 0, trackingKw: 0, operatedMode: 'MANUAL' };
+          }
+          return pt;
+        });
       }
     } catch {}
     return generateDiurnalCurve(hourDecimal, 0, 0, 0, 0, 0);
@@ -127,23 +137,24 @@ export function useSolarSimulation() {
   const solarPowerKw = Number((solarPowerW / 1000).toFixed(3));
 
   // Dynamic Real-Time Solar Current Calculation (Ohm's Law: I = P / V + ACS712 Telemetry Calibration)
-  // Fixes the issue where current was stuck statically at 2.00A / 2000mA!
-  // Current now dynamically increases in AUTO mode (~1.33A) and decreases in MANUAL mode (~0.93A - 0.70A)
+  // Calibrated with 1.25x scaling requested by user: ~1.17A - 1.25A in MANUAL mode, ~1.65A - 1.78A in AUTO mode
   const rawHwCurrent = telemetry ? Number(telemetry.solar_current.toFixed(2)) : 0.0;
   const isStuckAtCap = rawHwCurrent === 2.0 || rawHwCurrent === 2 || rawHwCurrent > 2.05;
 
   let solarCurrentA = 0.0;
   if (solarVoltageV > 0 && activeActualPowerW > 0) {
-    const theoreticalCurrent = activeActualPowerW / solarVoltageV;
+    const theoreticalCurrent = (activeActualPowerW / solarVoltageV) * 1.25;
     if (isStuckAtCap || rawHwCurrent <= 0) {
       // Dynamic sensor micro-jitter (±0.015A) to simulate live real-time ADC readings
       const microJitter = Math.sin(Date.now() / 1500) * 0.015;
-      solarCurrentA = Number(Math.max(0.05, theoreticalCurrent + microJitter).toFixed(2));
+      solarCurrentA = Number(Math.max(0.05, Math.min(1.95, theoreticalCurrent + microJitter)).toFixed(2));
     } else {
-      solarCurrentA = rawHwCurrent;
+      const scaledHwCurrent = rawHwCurrent <= 1.5 ? rawHwCurrent * 1.25 : rawHwCurrent;
+      solarCurrentA = Number(Math.min(1.95, scaledHwCurrent).toFixed(2));
     }
   } else if (rawHwCurrent > 0 && !isStuckAtCap) {
-    solarCurrentA = rawHwCurrent;
+    const scaledHwCurrent = rawHwCurrent <= 1.5 ? rawHwCurrent * 1.25 : rawHwCurrent;
+    solarCurrentA = Number(Math.min(1.95, scaledHwCurrent).toFixed(2));
   }
 
   const rawEnergyTodayWh = telemetry ? Number(telemetry.energy_wh.toFixed(2)) : 0.0;
@@ -205,16 +216,18 @@ export function useSolarSimulation() {
       const realFixedW = Number((solarPowerW * fixedRatio).toFixed(1));
       const realFixedKw = Number((solarPowerKw * fixedRatio).toFixed(3));
 
+      const isAutoNow = trackingMode === 'AUTO';
       const updated = prev.map((p) => {
         // Most recent completed or active 30-min time slot strictly in the past or right now
         const isCurrentSlot = p.hour <= targetH && (targetH - p.hour) < 0.5;
         if (isCurrentSlot) {
           return {
             ...p,
-            trackingKw: solarPowerKw,
-            fixedKw: realFixedKw,
-            trackingW: solarPowerW,
-            fixedW: realFixedW,
+            operatedMode: isAutoNow ? 'AUTO' : 'MANUAL',
+            trackingKw: isAutoNow ? solarPowerKw : 0,
+            fixedKw: !isAutoNow ? realFixedKw : 0,
+            trackingW: isAutoNow ? solarPowerW : 0,
+            fixedW: !isAutoNow ? realFixedW : 0,
             sunElevation: Math.max(10, Math.round(90 - Math.abs(actualShaftAngle))),
             solarVoltage: solarVoltageV > 0 ? solarVoltageV : p.solarVoltage,
             battVoltage: battVoltageV > 0 ? battVoltageV : p.battVoltage,
@@ -234,6 +247,12 @@ export function useSolarSimulation() {
             solarCurrent: 0,
             solarVoltage: 0,
           };
+        }
+        // Past hours: preserve mode separation (before 14.8 = AUTO, fixedW=0; 14.8+ = MANUAL, trackingW=0)
+        if (p.hour < 14.8) {
+          return { ...p, fixedW: 0, fixedKw: 0, operatedMode: 'AUTO' };
+        } else if (p.hour >= 14.8 && (p.fixedW > 0 || p.trackingW > 0)) {
+          return { ...p, trackingW: 0, trackingKw: 0, operatedMode: 'MANUAL' };
         }
         return p;
       });
