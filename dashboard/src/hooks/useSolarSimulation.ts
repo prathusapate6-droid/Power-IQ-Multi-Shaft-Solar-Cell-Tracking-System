@@ -29,22 +29,29 @@ export function useSolarSimulation() {
   const now = new Date();
   const hourDecimal = now.getHours() + now.getMinutes() / 60;
 
-  // Dynamic Diurnal / Historical points based on real hardware data & 21W physical panel scale
+  // Dynamic Diurnal / Historical points tied to current date
+  const todayDateStr = new Date().toISOString().split('T')[0];
+  const DIURNAL_STORAGE_KEY = `power_iq_diurnal_${todayDateStr}`;
+  const ENERGY_STORAGE_KEY = `power_iq_energy_${todayDateStr}`;
+
   const [diurnalData, setDiurnalData] = useState<HourlyGenerationPoint[]>(() => {
     try {
-      localStorage.removeItem('power_iq_overview_diurnal_v4'); // Purge legacy 44.5W fake cache!
-      const saved = localStorage.getItem('power_iq_real_diurnal_v7');
+      // Purge obsolete legacy caches
+      localStorage.removeItem('power_iq_overview_diurnal_v4');
+      localStorage.removeItem('power_iq_real_diurnal_v7');
+      localStorage.removeItem('power_iq_today_energy_wh');
+      const saved = localStorage.getItem(DIURNAL_STORAGE_KEY);
       if (saved) {
         return JSON.parse(saved);
       }
     } catch {}
-    return generateDiurnalCurve(hourDecimal);
+    return generateDiurnalCurve(hourDecimal, 0, 0, 0, 0, 0);
   });
 
   // Persist energy today so refreshing the browser never resets harvested energy to 0
   const [persistedEnergyWh, setPersistedEnergyWh] = useState<number>(() => {
     try {
-      const saved = localStorage.getItem('power_iq_today_energy_wh');
+      const saved = localStorage.getItem(ENERGY_STORAGE_KEY);
       return saved ? parseFloat(saved) : 0.0;
     } catch {
       return 0.0;
@@ -115,7 +122,7 @@ export function useSolarSimulation() {
       const targetH = curH >= 6 && curH <= 18 ? curH : 12;
 
       // Realistic physical fixed panel power calculated from actual shaft angle tilt
-      const fixedRatio = Math.max(0.65, Math.cos(actualShaftAngle * Math.PI / 180));
+      const fixedRatio = Math.max(0.65, Math.cos((actualShaftAngle * Math.PI) / 180));
       const realFixedW = Number((solarPowerW * fixedRatio).toFixed(1));
       const realFixedKw = Number((solarPowerKw * fixedRatio).toFixed(3));
 
@@ -133,10 +140,10 @@ export function useSolarSimulation() {
             battVoltage: battVoltageV > 0 ? battVoltageV : p.battVoltage,
             solarCurrent: solarCurrentA > 0 ? solarCurrentA : p.solarCurrent,
             temperature: temperatureC > 0 ? temperatureC : p.temperature,
-            humidity: (telemetry && telemetry.humidity) ? telemetry.humidity : p.humidity,
+            humidity: telemetry && telemetry.humidity ? telemetry.humidity : p.humidity,
           };
         }
-        // Future hours are ALWAYS zero (no fake predictions!)
+        // Future hours are ALWAYS zero
         if (p.hour > curH + 0.25) {
           return {
             ...p,
@@ -148,37 +155,24 @@ export function useSolarSimulation() {
             solarVoltage: 0,
           };
         }
-        // Past hours: If any point has old fake peak > 22W, scale it down to actual panel capacity
-        if (p.trackingW > 22.0) {
-          const sunFraction = (p.hour - 6) / 12;
-          const sunSin = Math.sin(Math.max(0, sunFraction) * Math.PI);
-          const scaledW = Number((Math.pow(sunSin, 0.62) * 20.5).toFixed(1));
-          return {
-            ...p,
-            trackingW: scaledW,
-            fixedW: Number((scaledW * 0.71).toFixed(1)),
-            trackingKw: Number((scaledW / 1000).toFixed(3)),
-            fixedKw: Number(((scaledW * 0.71) / 1000).toFixed(3)),
-            solarVoltage: solarVoltageV > 0 ? solarVoltageV : p.solarVoltage,
-            battVoltage: battVoltageV > 0 ? battVoltageV : p.battVoltage,
-            temperature: temperatureC > 0 ? temperatureC : p.temperature,
-          };
-        }
         return p;
       });
-      try {
-        localStorage.setItem('power_iq_real_diurnal_v7', JSON.stringify(updated));
-      } catch {}
+
+      if (solarPowerW > 0.5) {
+        try {
+          localStorage.setItem(DIURNAL_STORAGE_KEY, JSON.stringify(updated));
+        } catch {}
+      }
       return updated;
     });
 
-    if (telemetry.energy_wh > 0 && telemetry.energy_wh > persistedEnergyWh) {
+    if (telemetry.energy_wh > 0) {
       setPersistedEnergyWh(telemetry.energy_wh);
       try {
-        localStorage.setItem('power_iq_today_energy_wh', telemetry.energy_wh.toString());
+        localStorage.setItem(ENERGY_STORAGE_KEY, telemetry.energy_wh.toString());
       } catch {}
     }
-  }, [telemetry, solarPowerKw, solarPowerW, actualShaftAngle, persistedEnergyWh]);
+  }, [telemetry, solarPowerKw, solarPowerW, actualShaftAngle, DIURNAL_STORAGE_KEY, ENERGY_STORAGE_KEY]);
 
 
   // 8 Parallel Shafts Data synchronized to the real physical slat angle

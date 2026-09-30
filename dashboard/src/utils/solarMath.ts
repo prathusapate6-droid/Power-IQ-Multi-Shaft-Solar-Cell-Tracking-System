@@ -38,22 +38,23 @@ export function generateDiurnalCurve(
 ): HourlyGenerationPoint[] {
   const points: HourlyGenerationPoint[] = [];
 
-  // Actual physical panel scale: ~21W max (12V * 1.7A)
-  const actualPeakW = livePowerW > 5 ? Math.max(21.0, Number((livePowerW * 1.05).toFixed(1))) : 21.0;
-  const actualVoltV = liveVoltV > 5 ? liveVoltV : 12.8;
-  const actualBattV = liveBattV > 5 ? liveBattV : 9.6;
-  const actualTempC = liveTempC > 10 ? liveTempC : 42.0;
-  const actualHum = liveHum > 0 ? liveHum : 38;
+  // When system is offline or power is 0 (hardware turned off), strictly 0W (no fake data!)
+  const hasActiveGeneration = livePowerW > 0.5;
+  const actualPeakW = hasActiveGeneration ? Number((livePowerW * 1.05).toFixed(1)) : 0.0;
+  const actualVoltV = liveVoltV > 0 ? liveVoltV : 0.0;
+  const actualBattV = liveBattV > 0 ? liveBattV : 12.4;
+  const actualTempC = liveTempC > 0 ? liveTempC : 28.0;
+  const actualHum = liveHum > 0 ? liveHum : 48;
 
   for (let h = 6; h <= 18; h += 0.5) {
     const timeStr = `${Math.floor(h).toString().padStart(2, '0')}:${h % 1 === 0 ? '00' : '30'}`;
     const daylightFraction = (h - 6) / 12;
     const sunSin = Math.sin(daylightFraction * Math.PI);
 
-    // If future hour beyond current time (+15 min buffer), power is 0 (real data only!)
+    // If future hour or no active generation recorded, power is strictly 0!
     const isFuture = h > (currentHourDecimal + 0.25);
 
-    if (sunSin <= 0 || isFuture) {
+    if (sunSin <= 0 || isFuture || !hasActiveGeneration) {
       points.push({
         time: timeStr,
         hour: h,
@@ -63,7 +64,7 @@ export function generateDiurnalCurve(
         fixedW: 0,
         motorW: 0,
         sunElevation: Number((Math.max(0, sunSin) * 72).toFixed(1)),
-        solarVoltage: isFuture ? 0 : Number((actualVoltV * 0.9).toFixed(2)),
+        solarVoltage: hasActiveGeneration && !isFuture ? Number((actualVoltV * 0.9).toFixed(2)) : 0,
         battVoltage: Number(actualBattV.toFixed(2)),
         solarCurrent: 0,
         temperature: Number(actualTempC.toFixed(1)),
@@ -72,18 +73,15 @@ export function generateDiurnalCurve(
       continue;
     }
 
-    // Real physical panel scaling: peak is ~21W at noon, fixed panel is ~15W
+    // Active generation matching real physical hardware
     const trackingW = Number((Math.pow(sunSin, 0.62) * actualPeakW).toFixed(1));
     const fixedW = Number((Math.pow(sunSin, 1.45) * (actualPeakW * 0.71)).toFixed(1));
     const trackingKw = Number((trackingW / 1000).toFixed(3));
     const fixedKw = Number((fixedW / 1000).toFixed(3));
     
-    const isStepTime = (h * 10) % 5 === 0;
-    const motorW = isStepTime ? 3.5 : 0.0;
-
     const solarVoltage = Number((actualVoltV * (0.85 + Math.pow(sunSin, 0.3) * 0.15)).toFixed(2));
     const battVoltage = Number(actualBattV.toFixed(2));
-    const solarCurrent = Number((trackingW / Math.max(1, solarVoltage)).toFixed(2));
+    const solarCurrent = solarVoltage > 0 ? Number((trackingW / solarVoltage).toFixed(2)) : 0;
 
     points.push({
       time: timeStr,
@@ -92,7 +90,7 @@ export function generateDiurnalCurve(
       fixedKw,
       trackingW,
       fixedW,
-      motorW,
+      motorW: 0,
       sunElevation: Number((sunSin * 72).toFixed(1)),
       solarVoltage,
       battVoltage,

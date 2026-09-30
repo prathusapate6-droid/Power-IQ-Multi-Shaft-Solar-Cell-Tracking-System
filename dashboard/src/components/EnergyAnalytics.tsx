@@ -38,8 +38,17 @@ interface DailyRecord {
   chart: { time: string; trackingW: number; fixedW: number }[];
 }
 
-const STORAGE_KEY = 'power_iq_daily_telemetry_v5';
+const STORAGE_KEY = 'power_iq_daily_telemetry_v6';
 const FIREBASE_RTDB_URL = 'https://engineering-project-hub-default-rtdb.firebaseio.com';
+
+function createEmptyDayChart() {
+  const chart = [];
+  for (let h = 6; h <= 18; h++) {
+    const timeStr = `${h.toString().padStart(2, '0')}:00`;
+    chart.push({ time: timeStr, trackingW: 0, fixedW: 0 });
+  }
+  return chart;
+}
 
 function generateDayChart(peakW: number, maxHour: number = 18) {
   const chart = [];
@@ -87,9 +96,8 @@ function createDefaultHistoricalRecords(): Record<string, DailyRecord> {
     };
   }
 
-  // Today initial record with generation ONLY up to current hour (future hours are 0)
+  // Today initial record: starts completely at 0 (only logs when live power is generated)
   const now = new Date();
-  const currentHour = now.getHours();
   const todayStr = now.toISOString().split('T')[0];
   map[todayStr] = {
     date: todayStr,
@@ -97,11 +105,11 @@ function createDefaultHistoricalRecords(): Record<string, DailyRecord> {
     totalWh: 0,
     fixedWh: 0,
     peakPowerW: 0,
-    avgVoltageV: 13.6,
+    avgVoltageV: 0.0,
     avgCurrentA: 0.0,
-    avgTempC: 37.1,
-    netGainPercent: 38.9,
-    chart: generateDayChart(42.0, currentHour),
+    avgTempC: 28.0,
+    netGainPercent: 0.0,
+    chart: createEmptyDayChart(),
   };
 
   return map;
@@ -150,8 +158,8 @@ export const EnergyAnalytics: React.FC<EnergyAnalyticsProps> = ({ solar }) => {
         avgVoltageV: currentV,
         avgCurrentA: currentA,
         avgTempC: currentTemp,
-        netGainPercent: 38.9,
-        chart: generateDayChart(Math.max(42.0, currentW), new Date().getHours()),
+        netGainPercent: currentWh > 0 ? 38.9 : 0.0,
+        chart: createEmptyDayChart(),
       };
 
       // Update today's record with live values without generating future hours
@@ -182,6 +190,7 @@ export const EnergyAnalytics: React.FC<EnergyAnalyticsProps> = ({ solar }) => {
         avgVoltageV: currentV > 0 ? currentV : existing.avgVoltageV,
         avgCurrentA: currentA > 0 ? currentA : existing.avgCurrentA,
         avgTempC: currentTemp > 0 ? currentTemp : existing.avgTempC,
+        netGainPercent: newWh > 0 ? 38.9 : 0.0,
         chart: updatedChart,
       };
 
@@ -369,7 +378,7 @@ export const EnergyAnalytics: React.FC<EnergyAnalyticsProps> = ({ solar }) => {
                   Total Energy
                 </span>
                 <span className="font-bold text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded font-mono text-[10px]">
-                  +{activeRecord.netGainPercent}% GAIN
+                  {activeRecord.totalWh > 0 ? `+${activeRecord.netGainPercent}% GAIN` : 'IDLE / 0.0%'}
                 </span>
               </div>
               <div className="flex items-baseline gap-1 mt-1">
@@ -511,7 +520,9 @@ export const EnergyAnalytics: React.FC<EnergyAnalyticsProps> = ({ solar }) => {
                 </div>
                 <div className="flex justify-between text-slate-600">
                   <span>Harvest Advantage:</span>
-                  <span className="font-bold text-emerald-700">+{activeRecord.netGainPercent}% NET</span>
+                  <span className="font-bold text-emerald-700">
+                    {activeRecord.totalWh > 0 ? `+${activeRecord.netGainPercent}% NET` : '0.0% (Standby)'}
+                  </span>
                 </div>
                 <div className="flex justify-between text-slate-600">
                   <span>Peak Output:</span>
