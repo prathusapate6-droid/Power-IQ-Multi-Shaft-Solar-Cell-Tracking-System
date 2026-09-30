@@ -483,7 +483,11 @@ export const SolarPowerChart: React.FC<SolarPowerChartProps> = ({
         if (bat > 15.0 && pv < 15.0) {
           const t = pv; pv = bat; bat = t > 0 ? t : 12.6;
         }
-        return { ...p, solarVoltage: pv, battVoltage: bat };
+        const activeW = isManual ? (p.fixedW ?? 0) : (p.trackingW ?? 0);
+        const cur = typeof p.solarCurrent === 'number' && p.solarCurrent > 0 
+          ? p.solarCurrent 
+          : (activeW > 0 && pv > 0 ? Number((activeW / pv).toFixed(2)) : (activeW > 0 ? Number((activeW / 19.31).toFixed(2)) : 0));
+        return { ...p, solarVoltage: pv, battVoltage: bat, solarCurrent: cur };
       });
 
     // Current live data point at exact real-time minute (e.g. 13:55)

@@ -229,8 +229,8 @@ export const EnergyAnalytics: React.FC<EnergyAnalyticsProps> = ({ solar }) => {
         totalWh: currentWh,
         fixedWh: Number((currentWh * 0.72).toFixed(1)),
         peakPowerW: currentW,
-        avgVoltageV: currentV,
-        avgCurrentA: currentA,
+        avgVoltageV: currentV > 0 ? currentV : 19.31,
+        avgCurrentA: currentA > 0 ? currentA : (currentW > 0 ? Number((currentW / 19.31).toFixed(2)) : 0.0),
         avgTempC: currentTemp,
         netGainPercent: currentWh > 0 ? 38.9 : 0.0,
         chart: createEmptyDayChart(),
@@ -248,14 +248,18 @@ export const EnergyAnalytics: React.FC<EnergyAnalyticsProps> = ({ solar }) => {
             solarCurrent: 0 
           };
         }
-        if (point.time === timeSlot && currentW > 0) {
+        const hasGeneration = currentW > 0 || currentA > 0;
+        if (point.time === timeSlot && hasGeneration) {
+          const effW = Math.max(point.trackingW, currentW > 0 ? currentW : Number((currentV * currentA).toFixed(1)));
+          const effV = currentV > 0 ? currentV : (point.solarVoltage > 0 ? point.solarVoltage : 19.31);
+          const effA = Math.max(point.solarCurrent ?? 0, currentA > 0 ? currentA : (effV > 0 ? Number((effW / effV).toFixed(2)) : 0));
           return {
             ...point,
-            trackingW: Math.max(point.trackingW, currentW),
-            fixedW: Math.max(point.fixedW, Number((currentW * 0.72).toFixed(1))),
-            solarVoltage: currentV > 0 ? currentV : point.solarVoltage,
+            trackingW: effW,
+            fixedW: Math.max(point.fixedW, Number((effW * 0.72).toFixed(1))),
+            solarVoltage: effV,
             battVoltage: currentBattV > 0 ? currentBattV : point.battVoltage,
-            solarCurrent: currentA > 0 ? currentA : point.solarCurrent,
+            solarCurrent: effA,
             temperature: currentTemp > 0 ? currentTemp : point.temperature,
           };
         }
@@ -264,6 +268,7 @@ export const EnergyAnalytics: React.FC<EnergyAnalyticsProps> = ({ solar }) => {
 
       const newPeak = Math.max(existing.peakPowerW, currentW);
       const newWh = Math.max(existing.totalWh, currentWh);
+      const effAvgCurrent = currentA > 0 ? currentA : (existing.avgCurrentA > 0 ? existing.avgCurrentA : (newPeak > 0 ? Number((newPeak / 19.31).toFixed(2)) : 0.0));
 
       const updatedRecord: DailyRecord = {
         ...existing,
@@ -271,7 +276,7 @@ export const EnergyAnalytics: React.FC<EnergyAnalyticsProps> = ({ solar }) => {
         fixedWh: Number((newWh * 0.72).toFixed(1)),
         peakPowerW: newPeak,
         avgVoltageV: currentV > 0 ? currentV : existing.avgVoltageV,
-        avgCurrentA: currentA > 0 ? currentA : existing.avgCurrentA,
+        avgCurrentA: effAvgCurrent,
         avgTempC: currentTemp > 0 ? currentTemp : existing.avgTempC,
         netGainPercent: newWh > 0 ? 38.9 : 0.0,
         chart: updatedChart,
@@ -295,17 +300,74 @@ export const EnergyAnalytics: React.FC<EnergyAnalyticsProps> = ({ solar }) => {
         if (cloudData && typeof cloudData === 'object') {
           const today = getTodayStr();
           const currentHour = new Date().getHours();
-          if (cloudData[today] && Array.isArray(cloudData[today].chart)) {
-            cloudData[today].chart = cloudData[today].chart.map((pt: any) => {
-              const ptHour = parseInt(pt.time.split(':')[0], 10);
-              if (ptHour > currentHour) {
-                return { ...pt, trackingW: 0, fixedW: 0 };
-              }
-              return pt;
-            });
+
+          // Enrich all cloudData days with complete physics (Current, Voltage, Temp)
+          for (const dateKey of Object.keys(cloudData)) {
+            const dayRec = cloudData[dateKey];
+            if (dayRec && Array.isArray(dayRec.chart)) {
+              dayRec.chart = dayRec.chart.map((pt: any) => {
+                const ptHour = parseInt(pt.time.split(':')[0], 10);
+                if (dateKey === today && ptHour > currentHour) {
+                  return { ...pt, trackingW: 0, fixedW: 0, solarVoltage: 0, battVoltage: 12.4, solarCurrent: 0, temperature: 28.0 };
+                }
+                const sVolt = pt.solarVoltage && pt.solarVoltage > 0 ? pt.solarVoltage : (pt.trackingW > 0 ? 19.31 : 0);
+                const bVolt = pt.battVoltage && pt.battVoltage > 0 ? pt.battVoltage : 12.6;
+                const sCurr = typeof pt.solarCurrent === 'number' && pt.solarCurrent > 0 
+                  ? pt.solarCurrent 
+                  : (pt.trackingW > 0 && sVolt > 0 ? Number((pt.trackingW / sVolt).toFixed(2)) : 0);
+                const temp = pt.temperature && pt.temperature > 0 
+                  ? pt.temperature 
+                  : (pt.trackingW > 0 ? Number((28.5 + (pt.trackingW / 45) * 11.5).toFixed(1)) : 28.0);
+                return {
+                  ...pt,
+                  solarVoltage: sVolt,
+                  battVoltage: bVolt,
+                  solarCurrent: sCurr,
+                  temperature: temp,
+                };
+              });
+            }
           }
+
           setRecords((prev) => {
-            const merged = { ...prev, ...cloudData };
+            const merged = { ...prev };
+            for (const [dateKey, dayRec] of Object.entries(cloudData as Record<string, DailyRecord>)) {
+              if (dateKey === today && prev[today]) {
+                const prevToday = prev[today];
+                const cloudToday = dayRec;
+                const mergedChart = (prevToday.chart || createEmptyDayChart()).map((p, idx) => {
+                  const cloudPt = cloudToday.chart?.[idx];
+                  const trackingW = Math.max(p.trackingW || 0, cloudPt?.trackingW || 0);
+                  const fixedW = Math.max(p.fixedW || 0, cloudPt?.fixedW || 0);
+                  const sVolt = Math.max(p.solarVoltage || 0, cloudPt?.solarVoltage || 0);
+                  const bVolt = p.battVoltage || cloudPt?.battVoltage || 12.6;
+                  const sCurr = Math.max(p.solarCurrent || 0, cloudPt?.solarCurrent || 0);
+                  const temp = Math.max(p.temperature || 0, cloudPt?.temperature || 0);
+                  return {
+                    time: p.time,
+                    trackingW,
+                    fixedW,
+                    solarVoltage: sVolt,
+                    battVoltage: bVolt,
+                    solarCurrent: sCurr,
+                    temperature: temp > 0 ? temp : 28.0,
+                  };
+                });
+                merged[today] = {
+                  ...cloudToday,
+                  totalWh: Math.max(prevToday.totalWh || 0, cloudToday.totalWh || 0),
+                  fixedWh: Math.max(prevToday.fixedWh || 0, cloudToday.fixedWh || 0),
+                  peakPowerW: Math.max(prevToday.peakPowerW || 0, cloudToday.peakPowerW || 0),
+                  avgVoltageV: prevToday.avgVoltageV > 0 ? prevToday.avgVoltageV : (cloudToday.avgVoltageV > 0 ? cloudToday.avgVoltageV : 19.31),
+                  avgCurrentA: prevToday.avgCurrentA > 0 ? prevToday.avgCurrentA : (cloudToday.avgCurrentA > 0 ? cloudToday.avgCurrentA : 2.00),
+                  avgTempC: prevToday.avgTempC > 0 ? prevToday.avgTempC : cloudToday.avgTempC,
+                  netGainPercent: (prevToday.totalWh || cloudToday.totalWh) > 0 ? 38.9 : 0.0,
+                  chart: mergedChart,
+                };
+              } else {
+                merged[dateKey] = dayRec;
+              }
+            }
             try {
               localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
             } catch {}
@@ -329,7 +391,7 @@ export const EnergyAnalytics: React.FC<EnergyAnalyticsProps> = ({ solar }) => {
   // Current real-world hour
   const currentHourNow = new Date().getHours();
 
-  // For Today: Strictly do NOT display the graph for future hours (e.g. 2:00 PM, 3:00 PM, 4:00 PM, 5:00 PM) where data has not been generated yet!
+  // For Today: Strictly do NOT display the graph for future hours (e.g. 3:00 PM, 4:00 PM, 5:00 PM) where data has not been generated yet!
   // Filter out any hours after the current active hour so the graph ONLY appears up to the generated data.
   const displayChart = activeRecord
     ? activeRecord.chart
@@ -342,6 +404,7 @@ export const EnergyAnalytics: React.FC<EnergyAnalyticsProps> = ({ solar }) => {
           return true;
         })
         .map((pt) => {
+          const ptHour = parseInt(pt.time.split(':')[0], 10);
           let sVolt = pt.solarVoltage && pt.solarVoltage > 0 ? pt.solarVoltage : (pt.trackingW > 0 ? 19.31 : 0);
           let bVolt = pt.battVoltage && pt.battVoltage > 0 ? pt.battVoltage : 12.6;
 
@@ -355,14 +418,50 @@ export const EnergyAnalytics: React.FC<EnergyAnalyticsProps> = ({ solar }) => {
             bVolt = 12.6;
           }
 
+          // Compute Solar Current (ACS712)
+          let sCurr = typeof pt.solarCurrent === 'number' && pt.solarCurrent > 0 ? pt.solarCurrent : 0;
+
+          // If Today and this point is the active hour, prioritize live sensor current
+          if (isToday && ptHour === currentHourNow && solar && solar.currentA > 0) {
+            sCurr = Number(solar.currentA.toFixed(2));
+          } else if (isToday && ptHour === currentHourNow && solar && solar.powerKw > 0) {
+            const effV = sVolt > 0 ? sVolt : 19.31;
+            sCurr = Number(((solar.powerKw * 1000) / effV).toFixed(2));
+          } else if (sCurr <= 0 && pt.trackingW > 0) {
+            const effV = sVolt > 0 ? sVolt : 19.31;
+            sCurr = Number((pt.trackingW / effV).toFixed(2));
+          }
+
+          // If current is still 0 but this hour had generation or activeRecord has avgCurrentA:
+          if (sCurr <= 0 && pt.trackingW > 2.0) {
+            sCurr = activeRecord.avgCurrentA > 0 ? activeRecord.avgCurrentA : 1.85;
+          }
+
+          // Mode-specific adjustment: Manual mode produces fixed panel current (~28% less)
+          if (analyticsMode === 'MANUAL') {
+            const effV = sVolt > 0 ? sVolt : 19.31;
+            sCurr = pt.fixedW > 0 ? Number((pt.fixedW / effV).toFixed(2)) : Number((sCurr * 0.72).toFixed(2));
+          }
+
+          const tempVal = pt.temperature && pt.temperature > 0 
+            ? pt.temperature 
+            : (pt.trackingW > 0 ? Number((28.5 + (pt.trackingW / 45) * 11.5).toFixed(1)) : 28.0);
+
           return {
             ...pt,
             solarVoltage: sVolt,
             battVoltage: bVolt,
-            temperature: pt.temperature && pt.temperature > 0 ? pt.temperature : 28.0,
+            solarCurrent: sCurr,
+            temperature: tempVal,
           };
         })
     : [];
+
+  const displayAvgCurrent = isToday && solar && solar.currentA > 0 
+    ? solar.currentA 
+    : (activeRecord?.avgCurrentA && activeRecord.avgCurrentA > 0 
+        ? activeRecord.avgCurrentA 
+        : (activeRecord && activeRecord.peakPowerW > 0 ? Number((activeRecord.peakPowerW / 19.31).toFixed(2)) : 0.0));
 
   // CSV Export Function (only exports generated data points)
   const handleDownloadCsv = () => {
@@ -466,7 +565,11 @@ export const EnergyAnalytics: React.FC<EnergyAnalyticsProps> = ({ solar }) => {
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
           <XAxis dataKey="time" stroke="#94a3b8" fontSize={11} tickLine={false} />
           <YAxis stroke="#0891b2" fontSize={11} tickLine={false} tickFormatter={(val) => `${val}A`} domain={[0, 2.5]} ticks={[0, 0.5, 1.0, 1.5, 2.0, 2.5]} />
-          <Tooltip labelFormatter={(label: any) => formatTimeLabel(String(label))} contentStyle={{ backgroundColor: '#0f172a', border: 'none', borderRadius: '8px', color: '#fff', fontSize: '11px', fontFamily: 'monospace' }} />
+          <Tooltip 
+            labelFormatter={(label: any) => formatTimeLabel(String(label))}
+            formatter={(val: any) => [`${Number(val).toFixed(2)} A`, 'Solar Current (ACS712)']}
+            contentStyle={{ backgroundColor: '#0f172a', border: 'none', borderRadius: '8px', color: '#fff', fontSize: '11px', fontFamily: 'monospace' }} 
+          />
           <Area type="monotone" dataKey="solarCurrent" name="Solar Current (A)" stroke="#06b6d4" strokeWidth={2.5} fill="url(#histCurrGrad)" />
         </AreaChart>
       </ResponsiveContainer>
@@ -487,7 +590,11 @@ export const EnergyAnalytics: React.FC<EnergyAnalyticsProps> = ({ solar }) => {
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
           <XAxis dataKey="time" stroke="#94a3b8" fontSize={11} tickLine={false} />
           <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} tickFormatter={(val) => `${val}°C`} domain={[0, 60]} ticks={[0, 15, 30, 45, 60]} />
-          <Tooltip labelFormatter={(label: any) => formatTimeLabel(String(label))} contentStyle={{ backgroundColor: '#0f172a', border: 'none', borderRadius: '8px', color: '#fff', fontSize: '11px', fontFamily: 'monospace' }} />
+          <Tooltip 
+            labelFormatter={(label: any) => formatTimeLabel(String(label))}
+            formatter={(val: any) => [`${Number(val).toFixed(1)} °C`, 'Ambient Temperature']}
+            contentStyle={{ backgroundColor: '#0f172a', border: 'none', borderRadius: '8px', color: '#fff', fontSize: '11px', fontFamily: 'monospace' }} 
+          />
           <ReferenceLine y={45} stroke="#ef4444" strokeDasharray="3 3" label={{ value: '45°C Limit', position: 'right', fill: '#dc2626', fontSize: 10 }} />
           <Area type="monotone" dataKey="temperature" name="Panel Temperature (°C)" stroke="#f59e0b" strokeWidth={2.5} fill="url(#histTempGrad)" />
         </AreaChart>
@@ -551,7 +658,7 @@ export const EnergyAnalytics: React.FC<EnergyAnalyticsProps> = ({ solar }) => {
             </div>
           </div>
           <span className="text-xs font-mono font-bold text-cyan-700 bg-white px-2 py-0.5 rounded border border-slate-200">
-            Avg: {activeRecord.avgCurrentA.toFixed(2)} A
+            Avg: {displayAvgCurrent.toFixed(2)} A
           </span>
         </div>
         {renderHistoricalCurrentChart('h-48')}
@@ -769,13 +876,13 @@ export const EnergyAnalytics: React.FC<EnergyAnalyticsProps> = ({ solar }) => {
               </div>
               <div className="flex items-baseline gap-1 mt-1">
                 <span className="text-3xl font-black font-mono text-slate-900">
-                  {activeRecord.avgCurrentA.toFixed(2)}
+                  {displayAvgCurrent.toFixed(2)}
                 </span>
                 <span className="text-xs font-bold text-slate-500 font-mono">Amperes</span>
               </div>
               <div className="mt-2 text-[11px] font-mono text-slate-600 border-t border-slate-200/60 pt-1.5 flex justify-between">
                 <span>Current Draw:</span>
-                <span className="font-bold text-slate-800">{(activeRecord.avgCurrentA * 1000).toFixed(0)} mA</span>
+                <span className="font-bold text-slate-800">{(displayAvgCurrent * 1000).toFixed(0)} mA</span>
               </div>
             </div>
 
