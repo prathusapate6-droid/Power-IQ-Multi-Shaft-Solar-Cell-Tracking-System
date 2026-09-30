@@ -484,7 +484,7 @@ export const SolarPowerChart: React.FC<SolarPowerChartProps> = ({
           const t = pv; pv = bat; bat = t > 0 ? t : 12.6;
         }
         const activeW = isManual ? (p.fixedW ?? 0) : (p.trackingW ?? 0);
-        const cur = typeof p.solarCurrent === 'number' && p.solarCurrent > 0 
+        const cur = typeof p.solarCurrent === 'number' && p.solarCurrent > 0 && p.solarCurrent !== 2.00
           ? p.solarCurrent 
           : (activeW > 0 && pv > 0 ? Number((activeW / pv).toFixed(2)) : (activeW > 0 ? Number((activeW / 19.31).toFixed(2)) : 0));
         return { ...p, solarVoltage: pv, battVoltage: bat, solarCurrent: cur };

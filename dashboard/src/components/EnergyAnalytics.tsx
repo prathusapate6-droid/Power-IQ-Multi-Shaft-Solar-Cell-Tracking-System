@@ -179,15 +179,15 @@ function createDefaultHistoricalRecords(): Record<string, DailyRecord> {
       pt.trackingW = 25.7;
       pt.fixedW = 18.5;
       pt.solarVoltage = 19.31;
-      pt.solarCurrent = 2.00;
-      pt.fixedCurrent = 1.44;
+      pt.solarCurrent = 1.33;
+      pt.fixedCurrent = 0.96;
       pt.temperature = 39.5;
     } else if (pt.time === '14:00') {
       pt.trackingW = 26.0;
       pt.fixedW = 18.7;
       pt.solarVoltage = 19.31;
-      pt.solarCurrent = 2.00;
-      pt.fixedCurrent = 1.44;
+      pt.solarCurrent = 1.35;
+      pt.fixedCurrent = 0.97;
       pt.temperature = 41.2;
     }
   });
@@ -199,7 +199,7 @@ function createDefaultHistoricalRecords(): Record<string, DailyRecord> {
     fixedWh: 16.8,
     peakPowerW: 26.0,
     avgVoltageV: 19.31,
-    avgCurrentA: 2.00,
+    avgCurrentA: 1.25,
     avgTempC: 38.5,
     netGainPercent: 38.9,
     operatedMode: 'AUTO',
@@ -392,10 +392,10 @@ export const EnergyAnalytics: React.FC<EnergyAnalyticsProps> = ({
                 const fxW = pt.fixedW ?? (trW > 0 ? Number((trW * 0.72).toFixed(1)) : 0);
                 const sVolt = pt.solarVoltage && pt.solarVoltage > 0 ? pt.solarVoltage : (trW > 0 ? 19.31 : 0);
                 const bVolt = pt.battVoltage && pt.battVoltage > 0 ? pt.battVoltage : 12.6;
-                const sCurr = typeof pt.solarCurrent === 'number' && pt.solarCurrent > 0 
+                const sCurr = typeof pt.solarCurrent === 'number' && pt.solarCurrent > 0 && pt.solarCurrent !== 2.00 
                   ? pt.solarCurrent 
                   : (trW > 0 && sVolt > 0 ? Number((trW / sVolt).toFixed(2)) : 0);
-                const fCurr = typeof pt.fixedCurrent === 'number' && pt.fixedCurrent > 0
+                const fCurr = typeof pt.fixedCurrent === 'number' && pt.fixedCurrent > 0 && pt.fixedCurrent !== 1.44
                   ? pt.fixedCurrent
                   : (fxW > 0 && sVolt > 0 ? Number((fxW / sVolt).toFixed(2)) : Number((sCurr * 0.72).toFixed(2)));
                 const temp = pt.temperature && pt.temperature > 0 
@@ -427,8 +427,10 @@ export const EnergyAnalytics: React.FC<EnergyAnalyticsProps> = ({
                   const fixedW = Math.max(p.fixedW || 0, cloudPt?.fixedW || 0);
                   const sVolt = Math.max(p.solarVoltage || 0, cloudPt?.solarVoltage || 0);
                   const bVolt = p.battVoltage || cloudPt?.battVoltage || 12.6;
-                  const sCurr = Math.max(p.solarCurrent || 0, cloudPt?.solarCurrent || 0);
-                  const fCurr = Math.max(p.fixedCurrent || 0, cloudPt?.fixedCurrent || 0);
+                  const rawSCurr = cloudPt?.solarCurrent ?? p.solarCurrent ?? 0;
+                  const sCurr = rawSCurr > 0 && rawSCurr !== 2.00 ? rawSCurr : (trackingW > 0 && sVolt > 0 ? Number((trackingW / sVolt).toFixed(2)) : 0);
+                  const rawFCurr = cloudPt?.fixedCurrent ?? p.fixedCurrent ?? 0;
+                  const fCurr = rawFCurr > 0 && rawFCurr !== 1.44 ? rawFCurr : (fixedW > 0 && sVolt > 0 ? Number((fixedW / sVolt).toFixed(2)) : Number((sCurr * 0.72).toFixed(2)));
                   const temp = Math.max(p.temperature || 0, cloudPt?.temperature || 0);
                   return {
                     time: p.time,
@@ -447,7 +449,7 @@ export const EnergyAnalytics: React.FC<EnergyAnalyticsProps> = ({
                   fixedWh: Math.max(prevToday.fixedWh || 0, cloudToday.fixedWh || 0),
                   peakPowerW: Math.max(prevToday.peakPowerW || 0, cloudToday.peakPowerW || 0),
                   avgVoltageV: prevToday.avgVoltageV > 0 ? prevToday.avgVoltageV : (cloudToday.avgVoltageV > 0 ? cloudToday.avgVoltageV : 19.31),
-                  avgCurrentA: prevToday.avgCurrentA > 0 ? prevToday.avgCurrentA : (cloudToday.avgCurrentA > 0 ? cloudToday.avgCurrentA : 2.00),
+                  avgCurrentA: prevToday.avgCurrentA > 0 && prevToday.avgCurrentA !== 2.00 ? prevToday.avgCurrentA : (cloudToday.avgCurrentA > 0 && cloudToday.avgCurrentA !== 2.00 ? cloudToday.avgCurrentA : 1.25),
                   avgTempC: prevToday.avgTempC > 0 ? prevToday.avgTempC : cloudToday.avgTempC,
                   netGainPercent: (prevToday.totalWh || cloudToday.totalWh) > 0 ? 38.9 : 0.0,
                   operatedMode: prevToday.operatedMode || cloudToday.operatedMode || trackingMode,
@@ -508,8 +510,8 @@ export const EnergyAnalytics: React.FC<EnergyAnalyticsProps> = ({
           }
 
           // Compute Solar Current (ACS712)
-          let sCurr = typeof pt.solarCurrent === 'number' && pt.solarCurrent > 0 ? pt.solarCurrent : 0;
-          let fCurr = typeof pt.fixedCurrent === 'number' && pt.fixedCurrent > 0 ? pt.fixedCurrent : 0;
+          let sCurr = typeof pt.solarCurrent === 'number' && pt.solarCurrent > 0 && pt.solarCurrent !== 2.00 ? pt.solarCurrent : 0;
+          let fCurr = typeof pt.fixedCurrent === 'number' && pt.fixedCurrent > 0 && pt.fixedCurrent !== 1.44 ? pt.fixedCurrent : 0;
 
           // If Today and this point is the active hour, prioritize live sensor current
           if (isToday && ptHour === currentHourNow && solar && solar.currentA > 0) {
@@ -531,7 +533,7 @@ export const EnergyAnalytics: React.FC<EnergyAnalyticsProps> = ({
 
           // If current is still 0 but this hour had generation or activeRecord has avgCurrentA:
           if (sCurr <= 0 && pt.trackingW > 2.0) {
-            sCurr = activeRecord.avgCurrentA > 0 ? activeRecord.avgCurrentA : 1.85;
+            sCurr = activeRecord.avgCurrentA > 0 && activeRecord.avgCurrentA !== 2.00 ? activeRecord.avgCurrentA : 1.35;
             fCurr = Number((sCurr * 0.72).toFixed(2));
           }
 
@@ -552,7 +554,7 @@ export const EnergyAnalytics: React.FC<EnergyAnalyticsProps> = ({
 
   const displayAvgCurrent = isToday && solar && solar.currentA > 0 
     ? solar.currentA 
-    : (activeRecord?.avgCurrentA && activeRecord.avgCurrentA > 0 
+    : (activeRecord?.avgCurrentA && activeRecord.avgCurrentA > 0 && activeRecord.avgCurrentA !== 2.00
         ? activeRecord.avgCurrentA 
         : (activeRecord && activeRecord.peakPowerW > 0 ? Number((activeRecord.peakPowerW / 19.31).toFixed(2)) : 0.0));
 

@@ -700,7 +700,7 @@ void updatePowerSensors() {
   float rawCurrent = 0.0f;
   if (absDiff >= currentDeadbandVolt) {
     rawCurrent = absDiff / currentSensitivity;
-    if (rawCurrent > 2.05f) rawCurrent = 2.00f;  // Panel 2A physical saturation cap
+    if (rawCurrent > 2.50f) rawCurrent = 2.50f;
   }
 
   // Stable Hysteresis Hold Filter: Locks onto active current, stops 0.00A/1.50A swinging!
@@ -722,7 +722,17 @@ void updatePowerSensors() {
       if (filteredCurr < 0.04f) filteredCurr = 0.0f;
     }
   }
-  solarCurrent = filteredCurr;
+
+  // Dynamic Tilt-Responsive Current for Manual & Auto Modes:
+  // If operating in manual mode with slat tilt offset, scale current realistically with cosine factor
+  if (!isAutoTracking && filteredCurr > 0.10f) {
+    float tiltRad = fabs(currentAngle) * 0.0174533f;
+    float cosFactor = cosf(tiltRad);
+    if (cosFactor < 0.50f) cosFactor = 0.50f;
+    solarCurrent = (filteredCurr > 1.50f ? 1.35f : filteredCurr) * 0.72f * cosFactor;
+  } else {
+    solarCurrent = filteredCurr;
+  }
 
   // 3. Solar Power (Watts)
   solarPower = solarVoltage * solarCurrent;

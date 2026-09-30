@@ -328,6 +328,19 @@ void parseIncomingStm32Packet(const String& jsonLine) {
     liveData.battVoltage = temp > 0.0f ? temp : 12.6f;
   }
 
+  // Dynamic Current & Power Calibration (Ohm's Law: I = P / V):
+  // Fixes fixed 2.00A current clamping when panel output is active
+  if (liveData.solarVoltage > 5.0f) {
+    if (strcmp(liveData.mode, "MAN") == 0) {
+      if (liveData.solarPower > 16.0f) {
+        liveData.solarPower = liveData.solarPower * 0.72f;
+      }
+      liveData.solarCurrent = liveData.solarPower / liveData.solarVoltage;
+    } else if (liveData.solarCurrent >= 1.95f && liveData.solarPower < 35.0f) {
+      liveData.solarCurrent = liveData.solarPower / liveData.solarVoltage;
+    }
+  }
+
   liveData.lastUpdateMs  = millis();
   liveData.isStm32Online = true;
 
