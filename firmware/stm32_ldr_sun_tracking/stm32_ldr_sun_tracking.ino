@@ -1,41 +1,63 @@
 /*
 ================================================================================
  POWER IQ — Low-Power Multi-Shaft Solar Cell Tracking System
- Subsystem: STM32 Sun Tracking + Manual Pot/Btn + Solar Power (V+I+P) + ESP32
- Platform : STM32F103C8T6 "Blue Pill" (32-bit ARM Cortex-M3 @ 72 MHz)
+ Subsystem: STM32 Real-Time Kinematic Controller & Primary Sensor Acquisition
+ Platform : STM32F103C8T6 / C6T6 "Blue Pill" (32-bit ARM Cortex-M3 @ 72 MHz)
  Authors  : Prathamesh Sapate (Lead), Shreyash Pachade, Vansh Dobhale, Prachi Ronge
- Purpose  : 100% Pure STM32 Firmware (Dual UART: PC Debug + ESP32 Link)
+ Purpose  : Real-time closed-loop optical sun tracking, mechanical protection,
+            dual UART telemetry streaming (PC Debug + ESP32 Gateway), and
+            calibrated sensor acquisition (ACS712, Voltage Dividers, DHT11).
 ================================================================================
 
- HARDWARE WIRING SPECIFICATIONS (STM32 BLUE PILL):
-   1. A4988 STEPPER DRIVER:
-      - PB8   -> A4988 STEP (Pulse)
-      - PB9   -> A4988 DIR  (Direction)
-      - PB10  -> A4988 ENABLE (Active-LOW: 0=Moving, 1=Silent 0W Sleep)
-   2. ZERO DATUM HOME SENSOR:
-      - PB11  -> Hall Effect 0.0° Home Sensor (Active-LOW)
-   3. 4-QUADRANT LDR SUN SENSORS:
-      - PA0   -> Top Sector Sensor 1 (ADC1_IN0)
-      - PA1   -> Top Sector Sensor 2 (ADC1_IN1)
-      - PA4   -> Bottom Sector Sensor 1 (ADC1_IN4)
-      - PA5   -> Bottom Sector Sensor 2 (ADC1_IN5)
+ CORE ENGINEERING ARCHITECTURE & MATHEMATICAL PRINCIPLES:
+   1. TRANSMISSION KINEMATICS:
+      - Motor: NEMA 17 Stepper (1.8 deg per full step = 200 steps/revolution).
+      - Transmission: 19:1 Self-Locking Worm Gearbox rotating 8 parallel shafts.
+      - Kinematic Formula:
+          Steps_per_Degree = (200 steps/rev * 19 gear_ratio) / 360 degrees = 10.556 steps/deg
+      - Self-Locking Benefit: The worm gear prevents wind back-drive; motor coils
+        can be fully de-energized (0W parasitic sleep) while holding exact angle.
+
+   2. MECHANICAL TRAVEL LIMITS:
+      - Angular Range: Strictly clamped to -35.0 deg (Min) to +35.0 deg (Max).
+      - Center Zero Datum: 0.0 deg (Calibrated via PB11 Hall effect magnetic switch).
+
+   3. OPTICAL TRACKING & DEADBAND ALGORITHM:
+      - 4-Quadrant LDR Array: 2 Top sensors (PA0, PA1) and 2 Bottom sensors (PA4, PA5).
+      - Sector Differential: Delta = Average(Top) - Average(Bottom).
+      - Deadband Threshold: +/-25 ADC counts. Stops motor hunting and gear wear
+        when panel is within optimal cosine yield alignment (+/-0.5 deg).
+      - Night Detection: All sensors < 500 counts -> Safe park at 0.0 deg datum.
+
+ HARDWARE PIN MAPPING & ELECTRICAL INTERFACES (STM32 BLUE PILL):
+   1. A4988 STEPPER MOTOR DRIVER:
+      - PB8   -> STEP (Pulse output)
+      - PB9   -> DIR  (Direction control: HIGH=CW/West, LOW=CCW/East)
+      - PB10  -> ENABLE (Active-LOW: LOW=Motor energized, HIGH=0W sleep)
+   2. ZERO DATUM HALL SENSOR:
+      - PB11  -> Hall Effect Switch (Active-LOW with internal pull-up)
+   3. 4-QUADRANT LDR SUN SENSORS (12-bit ADC, 0-4095 scale):
+      - PA0   -> Top Sensor 1 (ADC1_IN0)
+      - PA1   -> Top Sensor 2 (ADC1_IN1)
+      - PA4   -> Bottom Sensor 1 (ADC1_IN4)
+      - PA5   -> Bottom Sensor 2 (ADC1_IN5)
    4. MANUAL CONTROLS:
-      - PB0   -> 10k Potentiometer Wiper (ADC1_IN8) [-40° to +40° Manual Angle]
-      - PB12  -> Auto/Manual Mode Push Button (Active-LOW with Internal Pullup)
-   5. SOLAR PV POWER MONITORING (Voltage + Current):
-      - PA6   -> Solar PV Voltage (ADC1_IN6) [R1=33k, R2=6.8k divider]
-      - PA7   -> Solar PV Current (ADC1_IN7) [ACS712 Sensor Out]
-   6. BATTERY MONITORING:
-      - PB1   -> Battery Voltage (ADC1_IN9) [Voltage divider]
-   7. ENVIRONMENT SENSOR:
-      - PB5   -> DHT11 Data Pin
-   8. DUAL HARDWARE UART PORTS:
-      - PA9   -> USART1_TX (PC USB-TTL RX) @ 9600 Baud
-      - PA10  -> USART1_RX (PC USB-TTL TX) @ 9600 Baud
-      - PA2   -> USART2_TX (ESP32 RX2 - GPIO 16) @ 9600 Baud
-      - PA3   -> USART2_RX (ESP32 TX2 - GPIO 17) @ 9600 Baud
-   9. VISUAL STATUS:
-      - PC13  -> On-board LED (Active-LOW, Heartbeat Pulse)
+      - PB0   -> 10k Linear Potentiometer Wiper (ADC1_IN8, mapped to -35.0° to +35.0°)
+      - PB12  -> 2-Position Hardware Auto/Manual Switch (Active-LOW to GND)
+      - PB13  -> Alternate Mode Switch Pin (Active-LOW to GND)
+   5. ELECTRICAL POWER MONITORING:
+      - PA6   -> Solar PV Bus Voltage (ADC1_IN6) [R1=33k, R2=6.8k divider, Ratio=5.853]
+      - PA7   -> Solar PV Current (ADC1_IN7) [ACS712 Hall-effect linear current IC]
+      - PB1   -> Battery Voltage (ADC1_IN9) [Voltage divider to monitor 12V battery]
+   6. ENVIRONMENT MONITORING:
+      - PB5   -> DHT11 Single-Bus Temperature & Humidity Data Pin
+   7. DUAL HIGH-SPEED UART PORTS:
+      - PA9   -> USART1_TX (PC USB-TTL Serial Monitor) @ 115200 Baud
+      - PA10  -> USART1_RX (PC Command Interface)      @ 115200 Baud
+      - PA2   -> USART2_TX (ESP32 Gateway Link - RX2)  @ 115200 Baud
+      - PA3   -> USART2_RX (ESP32 Command Link - TX2)  @ 115200 Baud
+   8. VISUAL SYSTEM HEALTH INDICATOR:
+      - PC13  -> On-board Green LED (Active-LOW: Blinks heartbeat every 1s)
 ================================================================================
 */
 
