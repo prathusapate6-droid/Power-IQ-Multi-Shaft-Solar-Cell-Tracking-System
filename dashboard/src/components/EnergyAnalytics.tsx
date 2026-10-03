@@ -71,7 +71,6 @@ export interface MonthSummaryRecord {
   fixedKwh: number;
   gainKwh: number;
   gainPct: number;
-  savingsInr: number;
   avgDailyKwh: number;
   season: string;
   isCurrent?: boolean;
@@ -292,13 +291,8 @@ export const EnergyAnalytics: React.FC<EnergyAnalyticsProps> = ({
     const currentTemp = solar && solar.temperatureC && solar.temperatureC > 0 ? Number(solar.temperatureC.toFixed(1)) : 28.0;
     let currentBattV = solar && solar.battVoltageV && solar.battVoltageV > 0 ? Number(solar.battVoltageV.toFixed(2)) : 12.6;
 
-    // Calibration guarantee: Solar PV is ~19V, Battery is ~12V
-    if (currentBattV > 15.0 && currentV < 15.0) {
-      const temp = currentV;
-      currentV = currentBattV;
-      currentBattV = temp > 0 ? temp : 12.6;
-    } else if (currentBattV > 15.0) {
-      currentV = currentBattV;
+    // Stabilize battery voltage if reading is > 15.0V
+    if (currentBattV > 15.0) {
       currentBattV = 12.6;
     }
 
@@ -312,7 +306,7 @@ export const EnergyAnalytics: React.FC<EnergyAnalyticsProps> = ({
         totalWh: Math.max(currentWh, 23.4),
         fixedWh: Math.max(Number((currentWh * 0.72).toFixed(1)), 16.8),
         peakPowerW: Math.max(currentW, 26.0),
-        avgVoltageV: currentV > 0 ? currentV : 19.31,
+        avgVoltageV: currentV > 0 ? currentV : 18.5,
         avgCurrentA: currentA > 0 ? currentA : 2.00,
         avgTempC: currentTemp,
         netGainPercent: 38.9,
@@ -578,7 +572,6 @@ export const EnergyAnalytics: React.FC<EnergyAnalyticsProps> = ({
         fixedKwh: octFixed,
         gainKwh: octGain,
         gainPct: 38.9,
-        savingsInr: Math.round(octGain * 9),
         avgDailyKwh: Number((octTracking / 30).toFixed(2)),
         season: 'Autumn (Clear High Sun)',
         isCurrent: true,
@@ -592,7 +585,6 @@ export const EnergyAnalytics: React.FC<EnergyAnalyticsProps> = ({
         fixedKwh: 5.48,
         gainKwh: 2.14,
         gainPct: 39.0,
-        savingsInr: 193,
         avgDailyKwh: 0.25,
         season: 'Post-Monsoon (Clear)',
         isCurrent: false,
@@ -606,7 +598,6 @@ export const EnergyAnalytics: React.FC<EnergyAnalyticsProps> = ({
         fixedKwh: 4.90,
         gainKwh: 1.90,
         gainPct: 38.8,
-        savingsInr: 171,
         avgDailyKwh: 0.22,
         season: 'Monsoon Overcast',
         isCurrent: false,
@@ -620,7 +611,6 @@ export const EnergyAnalytics: React.FC<EnergyAnalyticsProps> = ({
         fixedKwh: 4.68,
         gainKwh: 1.82,
         gainPct: 38.9,
-        savingsInr: 164,
         avgDailyKwh: 0.21,
         season: 'Monsoon Rain Clouds',
         isCurrent: false,
@@ -634,7 +624,6 @@ export const EnergyAnalytics: React.FC<EnergyAnalyticsProps> = ({
         fixedKwh: 5.18,
         gainKwh: 2.02,
         gainPct: 39.0,
-        savingsInr: 182,
         avgDailyKwh: 0.24,
         season: 'Early Monsoon / Rain',
         isCurrent: false,
@@ -648,7 +637,6 @@ export const EnergyAnalytics: React.FC<EnergyAnalyticsProps> = ({
         fixedKwh: 5.85,
         gainKwh: 2.27,
         gainPct: 38.8,
-        savingsInr: 204,
         avgDailyKwh: 0.26,
         season: 'Peak Summer Solar',
         isCurrent: false,
@@ -662,7 +650,6 @@ export const EnergyAnalytics: React.FC<EnergyAnalyticsProps> = ({
         fixedKwh: 5.72,
         gainKwh: 2.23,
         gainPct: 39.0,
-        savingsInr: 201,
         avgDailyKwh: 0.27,
         season: 'Mid Summer High Sun',
         isCurrent: false,
@@ -676,7 +663,6 @@ export const EnergyAnalytics: React.FC<EnergyAnalyticsProps> = ({
         fixedKwh: 5.40,
         gainKwh: 2.10,
         gainPct: 38.9,
-        savingsInr: 189,
         avgDailyKwh: 0.24,
         season: 'Spring Transition',
         isCurrent: false,
@@ -690,7 +676,6 @@ export const EnergyAnalytics: React.FC<EnergyAnalyticsProps> = ({
         fixedKwh: 4.97,
         gainKwh: 1.93,
         gainPct: 38.8,
-        savingsInr: 174,
         avgDailyKwh: 0.25,
         season: 'Late Winter Clear',
         isCurrent: false,
@@ -704,7 +689,6 @@ export const EnergyAnalytics: React.FC<EnergyAnalyticsProps> = ({
         fixedKwh: 4.86,
         gainKwh: 1.89,
         gainPct: 38.9,
-        savingsInr: 170,
         avgDailyKwh: 0.22,
         season: 'Winter Solar Equinox',
         isCurrent: false,
@@ -717,7 +701,6 @@ export const EnergyAnalytics: React.FC<EnergyAnalyticsProps> = ({
     const totalTracking = allMonthsData.reduce((acc, m) => acc + m.trackingKwh, 0);
     const totalFixed = allMonthsData.reduce((acc, m) => acc + m.fixedKwh, 0);
     const totalGain = totalTracking - totalFixed;
-    const totalSavings = allMonthsData.reduce((acc, m) => acc + m.savingsInr, 0);
     const totalDays = allMonthsData.reduce((acc, m) => acc + m.daysCount, 0);
     const gainPct = Number(((totalGain / totalFixed) * 100).toFixed(1));
 
@@ -726,7 +709,6 @@ export const EnergyAnalytics: React.FC<EnergyAnalyticsProps> = ({
       fixedKwh: totalFixed.toFixed(2),
       gainKwh: totalGain.toFixed(2),
       gainPct,
-      savingsInr: totalSavings,
       totalDays,
       avgDailyKwh: (totalTracking / totalDays).toFixed(2),
     };
@@ -743,7 +725,6 @@ export const EnergyAnalytics: React.FC<EnergyAnalyticsProps> = ({
       fixedKwh: m.fixedKwh,
       gainKwh: m.gainKwh,
       gainPct: m.gainPct,
-      savingsInr: m.savingsInr,
       season: m.season,
     }));
   }, [allMonthsData]);
@@ -764,7 +745,6 @@ export const EnergyAnalytics: React.FC<EnergyAnalyticsProps> = ({
         fixedKwh: annualTotals.fixedKwh,
         gainKwh: annualTotals.gainKwh,
         gainPct: annualTotals.gainPct,
-        savingsInr: annualTotals.savingsInr,
         dailyAvgKwh: annualTotals.avgDailyKwh,
         days: annualTotals.totalDays,
       };
@@ -777,22 +757,21 @@ export const EnergyAnalytics: React.FC<EnergyAnalyticsProps> = ({
       fixedKwh: match.fixedKwh.toFixed(2),
       gainKwh: match.gainKwh.toFixed(2),
       gainPct: match.gainPct,
-      savingsInr: match.savingsInr,
       dailyAvgKwh: match.avgDailyKwh.toFixed(2),
       days: match.daysCount,
     };
   }, [selectedMonthFilter, allMonthsData, annualTotals]);
 
-  // CSV Export for Month-by-Month Report
+  // CSV Export for Month-by-Month Report (Pure Engineering Metrics)
   const handleDownloadMonthlyCsv = () => {
-    const headers = 'Month_Key,Month_Name,Days_Tracked,With_Tracking_Total_kWh,Non_Tracking_Baseline_kWh,Surplus_Gain_kWh,Gain_Percent,Cost_Savings_INR,Daily_Average_kWh\n';
+    const headers = 'Month_Key,Month_Name,Days_Tracked,With_Tracking_Total_kWh,Non_Tracking_Baseline_kWh,Surplus_Gain_kWh,Gain_Percent,Daily_Average_kWh\n';
     const rows = allMonthsData
       .map(
         (m) =>
-          `${m.monthKey},"${m.monthName}",${m.daysCount},${m.trackingKwh},${m.fixedKwh},${m.gainKwh},${m.gainPct}%,₹${m.savingsInr},${m.avgDailyKwh}`
+          `${m.monthKey},"${m.monthName}",${m.daysCount},${m.trackingKwh},${m.fixedKwh},${m.gainKwh},${m.gainPct}%,${m.avgDailyKwh}`
       )
       .join('\n');
-    const totalRow = `YTD_TOTAL,"2026 Full History",${annualTotals.totalDays},${annualTotals.trackingKwh},${annualTotals.fixedKwh},${annualTotals.gainKwh},${annualTotals.gainPct}%,₹${annualTotals.savingsInr},${annualTotals.avgDailyKwh}\n`;
+    const totalRow = `YTD_TOTAL,"2026 Full History",${annualTotals.totalDays},${annualTotals.trackingKwh},${annualTotals.fixedKwh},${annualTotals.gainKwh},${annualTotals.gainPct}%,${annualTotals.avgDailyKwh}\n`;
 
     const blob = new Blob([headers + rows + '\n' + totalRow], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -821,18 +800,8 @@ export const EnergyAnalytics: React.FC<EnergyAnalyticsProps> = ({
         })
         .map((pt) => {
           const ptHour = parseInt(pt.time.split(':')[0], 10);
-          let sVolt = pt.solarVoltage && pt.solarVoltage > 0 ? pt.solarVoltage : (pt.trackingW > 0 ? 19.31 : 0);
-          let bVolt = pt.battVoltage && pt.battVoltage > 0 ? pt.battVoltage : 12.6;
-
-          // Calibration guarantee: Solar PV is ~19V, Battery is ~12V
-          if (bVolt > 15.0 && sVolt < 15.0) {
-            const temp = sVolt;
-            sVolt = bVolt;
-            bVolt = temp > 0 ? temp : 12.6;
-          } else if (bVolt > 15.0) {
-            sVolt = bVolt;
-            bVolt = 12.6;
-          }
+          let sVolt = pt.solarVoltage && pt.solarVoltage > 0 ? pt.solarVoltage : (pt.trackingW > 0 ? (solar && solar.voltageV > 0 ? solar.voltageV : 18.5) : 0);
+          let bVolt = pt.battVoltage && pt.battVoltage > 0 && pt.battVoltage <= 15.0 ? pt.battVoltage : 12.6;
 
           // Compute Solar Current (ACS712)
           let sCurr = typeof pt.solarCurrent === 'number' && pt.solarCurrent > 0 && pt.solarCurrent !== 2.00 ? pt.solarCurrent : 0;
@@ -1393,8 +1362,8 @@ export const EnergyAnalytics: React.FC<EnergyAnalyticsProps> = ({
                 </strong>
               </div>
               <div className="flex justify-between">
-                <span>Electricity Bill Savings (@ ₹9/u):</span>
-                <strong className="text-amber-300 font-bold">₹{displayedMonthMetrics.savingsInr} saved</strong>
+                <span>Daily Generation Average:</span>
+                <strong className="text-amber-300 font-bold">{displayedMonthMetrics.dailyAvgKwh} kWh / day</strong>
               </div>
             </div>
           </div>
@@ -1496,8 +1465,8 @@ export const EnergyAnalytics: React.FC<EnergyAnalyticsProps> = ({
                                   <span>+{item.gainKwh.toFixed(2)} kWh</span>
                                 </div>
                                 <div className="flex justify-between gap-4 text-emerald-300 pt-0.5 font-bold">
-                                  <span>Monthly Savings:</span>
-                                  <span>₹{item.savingsInr} saved</span>
+                                  <span>Daily Average:</span>
+                                  <span>{(item.trackingKwh / item.days).toFixed(2)} kWh/day</span>
                                 </div>
                               </div>
                             </div>
@@ -1512,7 +1481,7 @@ export const EnergyAnalytics: React.FC<EnergyAnalyticsProps> = ({
                 </ResponsiveContainer>
               </div>
               <div className="mt-2 text-center text-[11px] text-slate-500 font-mono">
-                Hover over any month's bar to inspect exact generated kWh, solar harvest surplus, and financial savings.
+                Hover over any month's bar to inspect exact generated kWh and solar harvest surplus.
               </div>
             </div>
 
@@ -1541,7 +1510,7 @@ export const EnergyAnalytics: React.FC<EnergyAnalyticsProps> = ({
                       <th className="py-2.5 px-3 font-bold text-right text-slate-600">Non-Tracking (kWh)</th>
                       <th className="py-2.5 px-3 font-bold text-right text-emerald-700">Surplus Harvest</th>
                       <th className="py-2.5 px-3 font-bold text-center text-emerald-700">Boost %</th>
-                      <th className="py-2.5 px-3 font-bold text-right text-amber-700">Savings (₹)</th>
+                      <th className="py-2.5 px-3 font-bold text-right text-slate-700">Daily Avg (kWh)</th>
                       <th className="py-2.5 px-3 font-bold text-center">Select</th>
                     </tr>
                   </thead>
@@ -1587,8 +1556,8 @@ export const EnergyAnalytics: React.FC<EnergyAnalyticsProps> = ({
                               +{m.gainPct}%
                             </span>
                           </td>
-                          <td className="py-2.5 px-3 text-right font-bold text-amber-600">
-                            ₹{m.savingsInr}
+                          <td className="py-2.5 px-3 text-right font-bold text-slate-700">
+                            {m.avgDailyKwh.toFixed(2)} kWh
                           </td>
                           <td className="py-2.5 px-3 text-center">
                             <button
@@ -1630,8 +1599,8 @@ export const EnergyAnalytics: React.FC<EnergyAnalyticsProps> = ({
                           +{annualTotals.gainPct}%
                         </span>
                       </td>
-                      <td className="py-3 px-3 text-right font-black text-amber-300 text-sm">
-                        ₹{annualTotals.savingsInr}
+                      <td className="py-3 px-3 text-right font-black text-white text-sm">
+                        {annualTotals.avgDailyKwh} kWh
                       </td>
                       <td className="py-3 px-3 text-center">
                         <button

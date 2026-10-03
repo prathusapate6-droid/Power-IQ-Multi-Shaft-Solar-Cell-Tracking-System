@@ -102,19 +102,19 @@ $$\text{Harvest Gain Ratio} = \frac{249.3 - 179.5}{179.5} \times 100\% = \frac{6
 
 ## 4. Month-Wise Generation Results (Full Year 2026 History)
 
-| Month | Climate / Seasonal Factor | Days | ☀️ With Tracking (kWh) | ⚪ Without Tracking (kWh) | 🚀 Net Surplus (+kWh) | Gain % | Savings (@ ₹9/u) |
+| Month | Climate / Seasonal Factor | Days | ☀️ With Tracking (kWh) | ⚪ Without Tracking (kWh) | 🚀 Net Surplus (+kWh) | Gain % | Daily Average (kWh/day) |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: |
-| **January 2026** | Winter Solar Equinox | 31 | $6.75 \text{ kWh}$ | $4.86 \text{ kWh}$ | $+1.89 \text{ kWh}$ | $+38.9\%$ | ₹170 |
-| **February 2026** | Late Winter Clear Skies | 28 | $6.90 \text{ kWh}$ | $4.97 \text{ kWh}$ | $+1.93 \text{ kWh}$ | $+38.8\%$ | ₹174 |
-| **March 2026** | Spring Vernal Transition | 31 | $7.50 \text{ kWh}$ | $5.40 \text{ kWh}$ | $+2.10 \text{ kWh}$ | $+38.9\%$ | ₹189 |
-| **April 2026** | Mid Summer High Radiation | 30 | $7.95 \text{ kWh}$ | $5.72 \text{ kWh}$ | $+2.23 \text{ kWh}$ | $+39.0\%$ | ₹201 |
-| **May 2026** | Peak Summer Insolation | 31 | $8.12 \text{ kWh}$ | $5.85 \text{ kWh}$ | $+2.27 \text{ kWh}$ | $+38.8\%$ | ₹204 |
-| **June 2026** | Onset Monsoon Overcast | 30 | $7.20 \text{ kWh}$ | $5.18 \text{ kWh}$ | $+2.02 \text{ kWh}$ | $+39.0\%$ | ₹182 |
-| **July 2026** | Peak Monsoon Rain Clouds | 31 | $6.50 \text{ kWh}$ | $4.68 \text{ kWh}$ | $+1.82 \text{ kWh}$ | $+38.9\%$ | ₹164 |
-| **August 2026** | Monsoon Intermittent Rain | 31 | $6.80 \text{ kWh}$ | $4.90 \text{ kWh}$ | $+1.90 \text{ kWh}$ | $+38.8\%$ | ₹171 |
-| **September 2026** | Clear Post-Monsoon Skies | 30 | $7.62 \text{ kWh}$ | $5.48 \text{ kWh}$ | $+2.14 \text{ kWh}$ | $+39.0\%$ | ₹193 |
-| **October 2026 (Current)** | Autumn High Solar Yield | 30 | $7.48 \text{ kWh}$ | $5.38 \text{ kWh}$ | $+2.10 \text{ kWh}$ | $+38.9\%$ | ₹190 |
-| **CUMULATIVE (10 MONTHS)** | **Full Year-to-Date (YTD)** | **303** | **$72.82 \text{ kWh}$** | **$52.42 \text{ kWh}$** | **$+20.40 \text{ kWh}$** | **$+38.9\%$** | **₹1,836 Saved** |
+| **January 2026** | Winter Solar Equinox | 31 | $6.75 \text{ kWh}$ | $4.86 \text{ kWh}$ | $+1.89 \text{ kWh}$ | $+38.9\%$ | $0.22 \text{ kWh/day}$ |
+| **February 2026** | Late Winter Clear Skies | 28 | $6.90 \text{ kWh}$ | $4.97 \text{ kWh}$ | $+1.93 \text{ kWh}$ | $+38.8\%$ | $0.25 \text{ kWh/day}$ |
+| **March 2026** | Spring Vernal Transition | 31 | $7.50 \text{ kWh}$ | $5.40 \text{ kWh}$ | $+2.10 \text{ kWh}$ | $+38.9\%$ | $0.24 \text{ kWh/day}$ |
+| **April 2026** | Mid Summer High Radiation | 30 | $7.95 \text{ kWh}$ | $5.72 \text{ kWh}$ | $+2.23 \text{ kWh}$ | $+39.0\%$ | $0.27 \text{ kWh/day}$ |
+| **May 2026** | Peak Summer Insolation | 31 | $8.12 \text{ kWh}$ | $5.85 \text{ kWh}$ | $+2.27 \text{ kWh}$ | $+38.8\%$ | $0.26 \text{ kWh/day}$ |
+| **June 2026** | Onset Monsoon Overcast | 30 | $7.20 \text{ kWh}$ | $5.18 \text{ kWh}$ | $+2.02 \text{ kWh}$ | $+39.0\%$ | $0.24 \text{ kWh/day}$ |
+| **July 2026** | Peak Monsoon Rain Clouds | 31 | $6.50 \text{ kWh}$ | $4.68 \text{ kWh}$ | $+1.82 \text{ kWh}$ | $+38.9\%$ | $0.21 \text{ kWh/day}$ |
+| **August 2026** | Monsoon Intermittent Rain | 31 | $6.80 \text{ kWh}$ | $4.90 \text{ kWh}$ | $+1.90 \text{ kWh}$ | $+38.8\%$ | $0.22 \text{ kWh/day}$ |
+| **September 2026** | Clear Post-Monsoon Skies | 30 | $7.62 \text{ kWh}$ | $5.48 \text{ kWh}$ | $+2.14 \text{ kWh}$ | $+39.0\%$ | $0.25 \text{ kWh/day}$ |
+| **October 2026 (Current)** | Autumn High Solar Yield | 30 | $7.48 \text{ kWh}$ | $5.38 \text{ kWh}$ | $+2.10 \text{ kWh}$ | $+38.9\%$ | $0.25 \text{ kWh/day}$ |
+| **CUMULATIVE (10 MONTHS)** | **Full Year-to-Date (YTD)** | **303** | **$72.82 \text{ kWh}$** | **$52.42 \text{ kWh}$** | **$+20.40 \text{ kWh}$** | **$+38.9\%$** | **$0.24 \text{ kWh/day}$** |
 
 ---
 

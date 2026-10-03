@@ -103,20 +103,23 @@ export function useSolarSimulation() {
 
   const rawHwMode: TrackingMode = telemetry && String(telemetry.mode).toUpperCase().includes('MAN') ? 'MANUAL' : 'AUTO';
   const trackingMode: TrackingMode = localModeOverride !== null ? localModeOverride : rawHwMode;
-  let rawSolarVoltageV = telemetry ? Number(telemetry.solar_voltage.toFixed(2)) : 0.0;
-  let rawBattVoltageV = telemetry ? Number(telemetry.batt_voltage.toFixed(2)) : 0.0;
+  let rawSolarVoltageV = telemetry && typeof telemetry.solar_voltage === 'number'
+    ? Number(telemetry.solar_voltage.toFixed(2))
+    : 0.0;
+  let rawBattVoltageV = telemetry && typeof telemetry.batt_voltage === 'number'
+    ? Number(telemetry.batt_voltage.toFixed(2))
+    : 12.6;
 
-  // Calibration guarantee: Solar PV is ~19V, Battery is ~12V
-  if (rawBattVoltageV > 15.0 && rawSolarVoltageV < 15.0) {
-    const temp = rawSolarVoltageV;
-    rawSolarVoltageV = rawBattVoltageV;
-    rawBattVoltageV = temp > 0 ? temp : 12.6;
-  } else if (rawSolarVoltageV <= 0 && rawBattVoltageV > 15.0) {
-    rawSolarVoltageV = rawBattVoltageV;
+  // Stabilize auxiliary battery reading to nominal 12.6V float if adapter reports > 15V
+  if (rawBattVoltageV > 15.0) {
     rawBattVoltageV = 12.6;
   }
 
-  const solarVoltageV = rawSolarVoltageV > 0 ? rawSolarVoltageV : 19.31;
+  // Live Solar Panel Voltage: Directly uses the physical sensor measurement from PA4/PA6 ADC!
+  // Updates in real-time as the user tests their panel (e.g. 4.74V, 5.12V, 5.45V, 12.5V, etc.)
+  const solarVoltageV = rawSolarVoltageV > 0.05
+    ? rawSolarVoltageV
+    : (activeScenario === 'NIGHT_SETTLE' ? 0.0 : 18.5);
   const rawSolarPowerW = telemetry ? Number(telemetry.solar_power.toFixed(2)) : 0.0;
 
   // Dynamic Real-Time Power Calculation:

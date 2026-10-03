@@ -58,18 +58,15 @@ export function useHardwareMqtt() {
       });
     });
 
-// Auto-detect and correct inverted voltage channels from physical board dividers:
-// Solar Panel operating voltage is ~19V while Battery is ~12V
+// Auto-detect and calibrate hardware telemetry from physical board:
 function normalizeHardwareTelemetry(data: HardwareTelemetry): HardwareTelemetry {
   let solar_voltage = typeof data.solar_voltage === 'number' ? data.solar_voltage : 0;
-  let batt_voltage = typeof data.batt_voltage === 'number' ? data.batt_voltage : 0;
+  let batt_voltage = typeof data.batt_voltage === 'number' ? data.batt_voltage : 12.6;
 
-  if (batt_voltage > 15.0 && solar_voltage < 15.0) {
-    const temp = solar_voltage;
-    solar_voltage = batt_voltage;
-    batt_voltage = temp > 0 ? temp : 12.6;
-  } else if (solar_voltage <= 0 && batt_voltage > 15.0) {
-    solar_voltage = batt_voltage;
+  // Preserve live measured solar panel voltage directly from the ADC sensor (PA4/PA6).
+  // Do NOT overwrite or swap with battery voltage!
+  // If battery voltage reads > 15.0V (e.g. noisy adapter), stabilize battery at nominal 12.6V float
+  if (batt_voltage > 15.0) {
     batt_voltage = 12.6;
   }
 

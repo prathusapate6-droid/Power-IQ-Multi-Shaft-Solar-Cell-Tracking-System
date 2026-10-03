@@ -33,7 +33,7 @@ export const KpiCards: React.FC<KpiCardsProps> = ({
   const fixedW = isManual ? powerW : Number((powerW > 0 ? powerW * 0.704 : 18.0).toFixed(1));
   const gainWatts = Number((trackingW - fixedW).toFixed(1));
 
-  const effVolt = solar.voltageV > 5.0 ? solar.voltageV : 19.31;
+  const effVolt = solar.voltageV > 0.5 ? solar.voltageV : (powerW > 0 && solar.currentA > 0 ? Number((powerW / solar.currentA).toFixed(2)) : 5.0);
   const currentA = solar.currentA > 0 ? solar.currentA : Number((powerW / effVolt).toFixed(2));
   const trackingCurrentA = !isManual ? currentA : Number((trackingW / effVolt).toFixed(2));
   const fixedCurrentA = isManual ? currentA : Number((fixedW / effVolt).toFixed(2));
