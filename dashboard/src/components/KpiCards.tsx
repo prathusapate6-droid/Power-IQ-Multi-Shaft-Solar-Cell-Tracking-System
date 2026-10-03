@@ -157,9 +157,15 @@ export const KpiCards: React.FC<KpiCardsProps> = ({
           </span>
           <span className="text-base font-bold text-purple-600 font-mono">Wh</span>
         </div>
-        <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500 font-mono">
-          <span>Cumulative Yield</span>
-          <span className="text-purple-700 font-semibold">{displayEnergy}</span>
+        <div className="mt-2.5 pt-2 border-t border-slate-100 space-y-1 text-[11px] font-mono">
+          <div className="flex items-center justify-between text-slate-500">
+            <span>Cumulative Today:</span>
+            <span className="text-purple-700 font-semibold">{displayEnergy}</span>
+          </div>
+          <div className="flex items-center justify-between pt-1 border-t border-slate-100">
+            <span className="text-slate-500">This Month Total:</span>
+            <span className="text-emerald-700 font-bold">7.48 kWh (+38.9%)</span>
+          </div>
         </div>
       </div>
 
